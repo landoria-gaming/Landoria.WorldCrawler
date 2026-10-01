@@ -1,0 +1,37 @@
+using System.Collections.Generic;
+using Landoria.WorldCrawler.Capture;
+using UnityEngine;
+
+namespace Landoria.WorldCrawler.Restoration
+{
+    // Protects living actors and prevents temporary structural collapse during a zone import.
+    internal static class RestoreProtection
+    {
+        private static readonly HashSet<string> Held = new HashSet<string>();
+        public static bool Active { get; set; }
+
+        // Rejects any player or fauna component on the object or within its prefab hierarchy.
+        public static bool Protected(GameObject gameObject)
+        {
+            if (gameObject == null) { return true; }
+            foreach (var transform in gameObject.GetComponentsInChildren<Transform>(true))
+            {
+                if (CaptureExclusionPolicy.Classify(transform.gameObject) != null) { return true; }
+            }
+            return gameObject.GetComponentInParent<Character>() != null;
+        }
+
+        // Retains a zone's supports while neighboring exported pieces are still being restored.
+        public static void Hold(int x, int z) { Held.Add(x + ":" + z); }
+
+        // Limits wear suppression to the explicitly active import sectors.
+        public static bool HoldWear(Vector3 position)
+        {
+            return Active && Held.Contains(Mathf.FloorToInt((position.x + 32f) / 64f) + ":" +
+                Mathf.FloorToInt((position.z + 32f) / 64f));
+        }
+
+        // Removes temporary protection after the controlled import stops.
+        public static void Clear() { Active = false; Held.Clear(); }
+    }
+}

@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>10</LangVersion>
+    <RuntimeIdentifiers>win</RuntimeIdentifiers>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="HarmonyValidator"
+                      Version="1.0.0"
+                      PrivateAssets="all" />
+  </ItemGroup>
+</Project>

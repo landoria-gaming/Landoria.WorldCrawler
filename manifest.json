@@ -1,0 +1,16 @@
+{
+  "name": "WorldCrawler",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/landoria-gaming/Landoria.WorldCrawler",
+  "description": "Survey explored Valheim zones and restore observed data into a fresh local world. Experimental.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2351"
+  ],
+  "categories": [
+    "deep-north-update",
+    "ai-generated",
+    "mods",
+    "client-side",
+    "utility"
+  ]
+}

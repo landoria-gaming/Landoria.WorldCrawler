@@ -1,0 +1,18 @@
+# Runs pure-data regressions without downloading or redistributing game assemblies.
+name: Core checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify inventory, storage and snapshot validation
+        run: dotnet run --project tests/CoreTests/CoreTests.csproj -c Release

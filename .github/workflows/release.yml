@@ -1,0 +1,22 @@
+name: Release package
+on:
+  workflow_dispatch:
+    inputs:
+      promote-to-thunderstore:
+        description: Promote the package to Thunderstore
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  package:
+    uses: landoria-gaming/LandoriaModActions/.github/workflows/release.yml@main
+    with:
+      project-file: Landoria.WorldCrawler.csproj
+      mod-name: Landoria.WorldCrawler
+      package-namespace: Landoria
+      promote-to-thunderstore: ${{ inputs['promote-to-thunderstore'] }}
+    secrets:
+      references-token: ${{ secrets.MOD_REFERENCES_TOKEN }}
+      thunderstore-token: ${{ secrets.THUNDERSTORE_TOKEN }}

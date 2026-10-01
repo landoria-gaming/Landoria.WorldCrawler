@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Storage/*.cs" Link="Storage/%(Filename)%(Extension)" />
+    <Compile Include="../../Inventory/*.cs" Link="Inventory/%(Filename)%(Extension)" />
+    <Compile Include="../../Runtime/SelectionRecovery.cs" Link="Runtime/SelectionRecovery.cs" />
+    <Compile Include="../../Runtime/PortalRouteMetric.cs" Link="Runtime/PortalRouteMetric.cs" />
+    <Compile Include="../../Runtime/ExportMapOverlayRegion.cs" Link="Runtime/ExportMapOverlayRegion.cs" />
+    <Compile Include="../../Runtime/ExportMapOverlayData.cs" Link="Runtime/ExportMapOverlayData.cs" />
+    <Compile Include="../../Runtime/ExportMapOverlayBounds.cs" Link="Runtime/ExportMapOverlayBounds.cs" />
+    <Compile Include="../../Runtime/ExportMapOverlayGeometry.cs" Link="Runtime/ExportMapOverlayGeometry.cs" />
+    <Compile Include="../../Runtime/ExportMapOverlaySource.cs" Link="Runtime/ExportMapOverlaySource.cs" />
+    <Compile Include="../../Capture/ZoneSnapshot.cs" Link="Capture/ZoneSnapshot.cs" />
+    <Compile Include="../../Capture/SnapshotValidation.cs" Link="Capture/SnapshotValidation.cs" />
+    <Compile Include="../../Capture/CapturedObject.cs" Link="Capture/CapturedObject.cs" />
+    <Compile Include="../../Capture/CapturedSceneNode.cs" Link="Capture/CapturedSceneNode.cs" />
+    <Compile Include="../../Capture/CaptureCount.cs" Link="Capture/CaptureCount.cs" />
+    <Compile Include="../../Capture/CaptureStability.cs" Link="Capture/CaptureStability.cs" />
+    <Compile Include="../../Restoration/ExportArchive.cs" Link="Restoration/ExportArchive.cs" />
+    <Compile Include="../../Restoration/PreparedWorld.cs" Link="Restoration/PreparedWorld.cs" />
+    <Compile Include="../../Restoration/NativeWorldMetadata.cs" Link="Restoration/NativeWorldMetadata.cs" />
+    <Compile Include="../../Restoration/RestoreState.cs" Link="Restoration/RestoreState.cs" />
+    <Compile Include="../../Restoration/RestoreJournal.cs" Link="Restoration/RestoreJournal.cs" />
+    <Compile Include="../../Restoration/RestoredObject.cs" Link="Restoration/RestoredObject.cs" />
+    <Compile Include="../../Restoration/WorldBackup.cs" Link="Restoration/WorldBackup.cs" />
+  </ItemGroup>
+</Project>
