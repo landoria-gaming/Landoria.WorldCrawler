@@ -11,7 +11,10 @@ namespace Landoria.WorldCrawler.Runtime
         public static void Write(WorldStore store, ManualLogSource log)
         {
             var selection = store.Manifest.Selection;
-            if (selection == null) { return; }
+            if (selection == null)
+            {
+                return;
+            }
             var counts = string.Join(", ", selection.Points.GroupBy(p => p.Kind)
                 .OrderBy(g => g.Key).Select(g => g.Key + "=" + g.Count()));
             var summary = $"Known locations: {selection.Points.Count} | radius {selection.Radius:0} m | {store.Manifest.Zones.Count} zones";
@@ -21,7 +24,10 @@ namespace Landoria.WorldCrawler.Runtime
                 var name = point.Name.Replace('\r', ' ').Replace('\n', ' ');
                 log.LogInfo($"Landmark [{point.Kind}] {name}: X={point.X:0.0}, Z={point.Z:0.0}; source={point.Source}.");
             }
-            foreach (var warning in selection.Warnings) { log.LogWarning(warning); }
+            foreach (var warning in selection.Warnings)
+            {
+                log.LogWarning(warning);
+            }
             HudNotification.Show(summary);
         }
     }

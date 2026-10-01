@@ -6,7 +6,10 @@ namespace Landoria.WorldCrawler.Capture
     internal static class CaptureStability
     {
         // Resets the two-second motion pause on every relevant receipt, with no initial blind wait.
-        internal static bool PauseForReceive(float now, float lastReceived) { return now - lastReceived < 2f; }
+        internal static bool PauseForReceive(float now, float lastReceived)
+        {
+            return now - lastReceived < 2f;
+        }
 
         // Keeps two seconds of relevant silence, extending it only for unusually high latency.
         internal static float QuietSeconds(int pingMilliseconds)

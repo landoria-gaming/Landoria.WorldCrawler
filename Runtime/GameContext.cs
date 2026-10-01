@@ -7,7 +7,10 @@ namespace Landoria.WorldCrawler.Runtime
     // Reads common game state without referencing version-specific value types.
     internal static class GameContext
     {
-        public static string GameVersion { get; private set; }
+        public static string GameVersion
+        {
+            get; private set;
+        }
 
         // Selects supported version families; adapters still require their exact API signatures.
         public static void ValidateVersion()
@@ -35,9 +38,14 @@ namespace Landoria.WorldCrawler.Runtime
         public static WorldIdentity Identity()
         {
             var world = ZNet.World ?? throw new InvalidOperationException("No connected world.");
-            return new WorldIdentity { Name = world.m_name, Uid = world.m_uid,
-                SeedText = world.m_seedName, Seed = world.m_seed,
-                GenerationVersion = world.m_worldGenVersion };
+            return new WorldIdentity
+            {
+                Name = world.m_name,
+                Uid = world.m_uid,
+                SeedText = world.m_seedName,
+                Seed = world.m_seed,
+                GenerationVersion = world.m_worldGenVersion
+            };
         }
 
         // Checks session identity before touching a player or saving a capture.

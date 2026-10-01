@@ -34,22 +34,34 @@ namespace Landoria.WorldCrawler.Runtime
         {
             bounds = default;
             if (textureSize <= 0 || !Positive(pixelSize) || !Positive(uvWidth) || !Positive(uvHeight)
-                || !Finite(uvX) || !Finite(uvY) || region.MaxX < region.MinX) { return false; }
+                || !Finite(uvX) || !Finite(uvY) || region.MaxX < region.MinX)
+            {
+                return false;
+            }
             var origin = (double)(textureSize / 2) / textureSize;
             var scale = pixelSize * textureSize;
             var left = Math.Max(0, ((region.MinX * 64.0 - 32) / scale + origin - uvX) / uvWidth);
             var right = Math.Min(1, ((region.MaxX * 64.0 + 32) / scale + origin - uvX) / uvWidth);
             var bottom = Math.Max(0, ((region.Z * 64.0 - 32) / scale + origin - uvY) / uvHeight);
             var top = Math.Min(1, ((region.Z * 64.0 + 32) / scale + origin - uvY) / uvHeight);
-            if (right <= left || top <= bottom) { return false; }
+            if (right <= left || top <= bottom)
+            {
+                return false;
+            }
             bounds = new ExportMapOverlayBounds(left, bottom, right, top);
             return true;
         }
 
         // Rejects invalid view scales before they reach mesh coordinates.
-        private static bool Positive(double value) { return value > 0 && Finite(value); }
+        private static bool Positive(double value)
+        {
+            return value > 0 && Finite(value);
+        }
 
         // Excludes NaN and infinities without requiring recent framework APIs.
-        private static bool Finite(double value) { return !double.IsNaN(value) && !double.IsInfinity(value); }
+        private static bool Finite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
     }
 }

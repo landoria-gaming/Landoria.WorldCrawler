@@ -10,17 +10,29 @@ namespace Landoria.WorldCrawler.Runtime
         {
             position = default(Vector3);
             if (portal == null || !portal.isActiveAndEnabled || ZoneSystem.instance == null
-                || !ZNetScene.instance.IsAreaReady(portal.transform.position)) { return false; }
+                || !ZNetScene.instance.IsAreaReady(portal.transform.position))
+            {
+                return false;
+            }
             var reach = portal.m_activationRange;
-            if (float.IsNaN(reach) || float.IsInfinity(reach) || reach < 2f || reach > 20f) { return false; }
+            if (float.IsNaN(reach) || float.IsInfinity(reach) || reach < 2f || reach > 20f)
+            {
+                return false;
+            }
             var offset = Mathf.Clamp(reach - 0.75f, 1.25f, 4f);
             foreach (var side in new[] { 1f, -1f })
             {
                 var candidate = portal.transform.position + portal.transform.forward * offset * side;
-                if (!ZoneSystem.instance.GetSolidHeight(candidate, out var height, 1000)) { continue; }
+                if (!ZoneSystem.instance.GetSolidHeight(candidate, out var height, 1000))
+                {
+                    continue;
+                }
                 candidate.y = height + 0.5f;
                 if (Vector3.Distance(candidate, portal.transform.position) > reach ||
-                    !OutsideTriggers(portal, candidate)) { continue; }
+                    !OutsideTriggers(portal, candidate))
+                {
+                    continue;
+                }
                 position = candidate;
                 return true;
             }
@@ -32,8 +44,14 @@ namespace Landoria.WorldCrawler.Runtime
         {
             foreach (var collider in portal.GetComponentsInChildren<Collider>())
             {
-                if (!collider.isTrigger || !collider.enabled) { continue; }
-                if (collider.bounds.SqrDistance(position + Vector3.up) < 1f) { return false; }
+                if (!collider.isTrigger || !collider.enabled)
+                {
+                    continue;
+                }
+                if (collider.bounds.SqrDistance(position + Vector3.up) < 1f)
+                {
+                    return false;
+                }
             }
             return true;
         }

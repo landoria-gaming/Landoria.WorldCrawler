@@ -9,7 +9,10 @@ namespace Landoria.WorldCrawler.Flight
         // Leaves every other environmental status untouched and applies only during F8 control.
         private static void Postfix(Player __instance)
         {
-            if (!FlightController.IsControlled(__instance)) { return; }
+            if (!FlightController.IsControlled(__instance))
+            {
+                return;
+            }
             var effects = __instance.GetSEMan();
             effects.RemoveStatusEffect(SEMan.s_statusEffectCold, true);
             effects.RemoveStatusEffect(SEMan.s_statusEffectFreezing, true);

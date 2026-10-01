@@ -14,9 +14,18 @@ namespace Landoria.WorldCrawler.Flight
         private readonly Player player;
         private readonly PlayerProfile profile;
         private readonly Type achievements;
-        public string GameVersion { get; private set; }
-        public bool? Eligible { get; private set; }
-        public string Summary { get; private set; }
+        public string GameVersion
+        {
+            get; private set;
+        }
+        public bool? Eligible
+        {
+            get; private set;
+        }
+        public string Summary
+        {
+            get; private set;
+        }
 
         // Records only the supported runtime's original achievement inputs.
         public AchievementGuard(Player player)

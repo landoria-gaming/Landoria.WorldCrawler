@@ -9,9 +9,15 @@ namespace Landoria.WorldCrawler.Flight
         // Leaves all other effects and all uncontrolled characters on their native path.
         private static bool Prefix(StatusEffect __instance, Character character, ref bool __result)
         {
-            if (!FlightController.IsControlled(character)) { return true; }
+            if (!FlightController.IsControlled(character))
+            {
+                return true;
+            }
             var hash = __instance.NameHash();
-            if (hash != SEMan.s_statusEffectCold && hash != SEMan.s_statusEffectFreezing) { return true; }
+            if (hash != SEMan.s_statusEffectCold && hash != SEMan.s_statusEffectFreezing)
+            {
+                return true;
+            }
             __result = false;
             return false;
         }

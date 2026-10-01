@@ -13,23 +13,50 @@ namespace Landoria.WorldCrawler.Runtime
             var best = 0.0;
             foreach (var source in LandmarkPortalSource.Portals())
             {
-                if (!LandmarkPortalSource.ValidPortal(source) || failed.Contains(source.m_uid)) { continue; }
-                var targetId = source.GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal);
-                if (targetId == ZDOID.None || targetId == source.m_uid) { continue; }
-                var target = ZDOMan.instance.GetZDO(targetId);
-                if (!LandmarkPortalSource.ValidPortal(target) ||
-                    target.GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal) != source.m_uid) { continue; }
+                if (!LandmarkPortalSource.ValidPortal(source) || failed.Contains(source.m_uid))
+                {
+                    continue;
+                }
+                var target = ConnectedTarget(source);
+                if (target == null)
+                {
+                    continue;
+                }
                 var start = source.GetPosition();
                 var end = target.GetPosition();
-                if (!Valid(start) || !Valid(end)) { continue; }
+                if (!Valid(start) || !Valid(end))
+                {
+                    continue;
+                }
                 var saving = PortalRouteMetric.Saving(current.x, current.y, current.z, start.x, start.y, start.z,
                     end.x, end.z, destination.x, destination.z);
-                if (saving <= best) { continue; }
+                if (saving <= best)
+                {
+                    continue;
+                }
                 best = saving;
-                chosen = new PortalRoute { Source = source.m_uid, Target = targetId,
-                    SourcePosition = start, TargetPosition = end };
+                chosen = new PortalRoute
+                {
+                    Source = source.m_uid,
+                    Target = target.m_uid,
+                    SourcePosition = start,
+                    TargetPosition = end
+                };
             }
             return chosen;
+        }
+
+        // Resolves only reciprocal portal links with both endpoints already received.
+        private static ZDO ConnectedTarget(ZDO source)
+        {
+            var targetId = source.GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal);
+            if (targetId == ZDOID.None || targetId == source.m_uid)
+            {
+                return null;
+            }
+            var target = ZDOMan.instance.GetZDO(targetId);
+            return LandmarkPortalSource.ValidPortal(target)
+                && target.GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal) == source.m_uid ? target : null;
         }
 
         // Rejects malformed or out-of-world cached endpoint positions before route planning.

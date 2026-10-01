@@ -30,14 +30,22 @@ namespace Landoria.WorldCrawler.Capture
             var instance = ZNetScene.instance.FindInstance(source);
             var result = new CapturedObject
             {
-                SourceUser = source.m_uid.UserID.ToString(CultureInfo.InvariantCulture), SourceId = source.m_uid.ID,
-                PrefabName = prefab.name, PrefabHash = source.GetPrefab(), ZoneX = x, ZoneZ = z,
-                Position = CaptureTransform.Vector(source.GetPosition()), Rotation = CaptureTransform.Rotation(source.GetRotation()),
+                SourceUser = source.m_uid.UserID.ToString(CultureInfo.InvariantCulture),
+                SourceId = source.m_uid.ID,
+                PrefabName = prefab.name,
+                PrefabHash = source.GetPrefab(),
+                ZoneX = x,
+                ZoneZ = z,
+                Position = CaptureTransform.Vector(source.GetPosition()),
+                Rotation = CaptureTransform.Rotation(source.GetRotation()),
                 LocalScale = instance == null ? null : CaptureTransform.Vector(instance.transform.localScale),
-                DataRevision = source.DataRevision, ObjectType = (int)source.Type, Distant = source.Distant,
+                DataRevision = source.DataRevision,
+                ObjectType = (int)source.Type,
+                Distant = source.Distant,
                 SourceOwner = source.GetOwner().ToString(CultureInfo.InvariantCulture),
                 Creator = source.GetLong("creator", 0L).ToString(CultureInfo.InvariantCulture),
-                RawDataBase64 = data.GetBase64(), ObservedUtcTicks = DateTime.UtcNow.Ticks,
+                RawDataBase64 = data.GetBase64(),
+                ObservedUtcTicks = DateTime.UtcNow.Ticks,
                 Categories = Categories(prefab, source.GetPrefab())
             };
             ReadConnection(source, result);
@@ -101,11 +109,27 @@ namespace Landoria.WorldCrawler.Capture
         {
             switch (name)
             {
-                case "Piece": case "Container": case "Sign": case "TeleportWorld":
-                case "ItemStand": case "ArmorStand": case "TerrainComp": case "TerrainModifier":
-                case "Plant": case "Pickable": case "Beehive": case "Character": case "Tameable":
-                case "TreeBase": case "TreeLog": case "Destructible": case "MineRock": case "MineRock5":
-                case "LocationProxy": case "DungeonGenerator": case "ItemDrop":
+                case "Piece":
+                case "Container":
+                case "Sign":
+                case "TeleportWorld":
+                case "ItemStand":
+                case "ArmorStand":
+                case "TerrainComp":
+                case "TerrainModifier":
+                case "Plant":
+                case "Pickable":
+                case "Beehive":
+                case "Character":
+                case "Tameable":
+                case "TreeBase":
+                case "TreeLog":
+                case "Destructible":
+                case "MineRock":
+                case "MineRock5":
+                case "LocationProxy":
+                case "DungeonGenerator":
+                case "ItemDrop":
                     return true;
                 default:
                     return false;

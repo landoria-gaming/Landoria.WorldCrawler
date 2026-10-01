@@ -8,21 +8,33 @@ namespace Landoria.WorldCrawler.Restoration
     internal static class RestoreProtection
     {
         private static readonly HashSet<string> Held = new HashSet<string>();
-        public static bool Active { get; set; }
+        public static bool Active
+        {
+            get; set;
+        }
 
         // Rejects any player or fauna component on the object or within its prefab hierarchy.
         public static bool Protected(GameObject gameObject)
         {
-            if (gameObject == null) { return true; }
+            if (gameObject == null)
+            {
+                return true;
+            }
             foreach (var transform in gameObject.GetComponentsInChildren<Transform>(true))
             {
-                if (CaptureExclusionPolicy.Classify(transform.gameObject) != null) { return true; }
+                if (CaptureExclusionPolicy.Classify(transform.gameObject) != null)
+                {
+                    return true;
+                }
             }
             return gameObject.GetComponentInParent<Character>() != null;
         }
 
         // Retains a zone's supports while neighboring exported pieces are still being restored.
-        public static void Hold(int x, int z) { Held.Add(x + ":" + z); }
+        public static void Hold(int x, int z)
+        {
+            Held.Add(x + ":" + z);
+        }
 
         // Limits wear suppression to the explicitly active import sectors.
         public static bool HoldWear(Vector3 position)
@@ -32,6 +44,10 @@ namespace Landoria.WorldCrawler.Restoration
         }
 
         // Removes temporary protection after the controlled import stops.
-        public static void Clear() { Active = false; Held.Clear(); }
+        public static void Clear()
+        {
+            Active = false;
+            Held.Clear();
+        }
     }
 }

@@ -19,13 +19,25 @@ namespace Landoria.WorldCrawler.Runtime
             while (pending.Count > 0)
             {
                 var portal = pending.Dequeue();
-                if (!ValidPortal(portal) || !seen.Add(portal.m_uid)) { continue; }
+                if (!ValidPortal(portal) || !seen.Add(portal.m_uid))
+                {
+                    continue;
+                }
                 Add(result, portal);
                 var target = portal.GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal);
-                if (target == ZDOID.None) { continue; }
+                if (target == ZDOID.None)
+                {
+                    continue;
+                }
                 var endpoint = ZDOMan.instance.GetZDO(target);
-                if (ValidPortal(endpoint)) { pending.Enqueue(endpoint); }
-                else { missing.Add(target); }
+                if (ValidPortal(endpoint))
+                {
+                    pending.Enqueue(endpoint);
+                }
+                else
+                {
+                    missing.Add(target);
+                }
             }
             result.Warnings.Add("Portal coverage is limited to the current client's received data; "
                 + "this is not a complete server portal list. Revisit missing portals and refresh the inventory.");
@@ -43,17 +55,25 @@ namespace Landoria.WorldCrawler.Runtime
                 null, Type.EmptyTypes, null) ?? throw new MissingMethodException("ZDOMan.GetPortals");
             var value = method.Invoke(ZDOMan.instance, null);
             var result = new List<ZDO>();
-            if (value is List<ZDO> list) { result.AddRange(list); }
+            if (value is List<ZDO> list)
+            {
+                result.AddRange(list);
+            }
             else if (value is IDictionary groups)
             {
                 foreach (var group in groups.Values)
                 {
                     if (!(group is List<ZDO> portals))
-                    { throw new NotSupportedException("Unexpected portal sector collection."); }
+                    {
+                        throw new NotSupportedException("Unexpected portal sector collection.");
+                    }
                     result.AddRange(portals);
                 }
             }
-            else { throw new NotSupportedException("Unexpected native portal cache representation."); }
+            else
+            {
+                throw new NotSupportedException("Unexpected native portal cache representation.");
+            }
             return result;
         }
 

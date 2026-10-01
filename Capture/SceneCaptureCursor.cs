@@ -12,8 +12,20 @@ namespace Landoria.WorldCrawler.Capture
         private readonly Queue<Tuple<Transform, string, string>> _pending = new Queue<Tuple<Transform, string, string>>();
         private readonly List<CapturedSceneNode> _nodes = new List<CapturedSceneNode>();
         private readonly List<string> _excluded = new List<string>();
-        internal List<CapturedSceneNode> Nodes { get { return _nodes; } }
-        internal List<string> Excluded { get { return _excluded; } }
+        internal List<CapturedSceneNode> Nodes
+        {
+            get
+            {
+                return _nodes;
+            }
+        }
+        internal List<string> Excluded
+        {
+            get
+            {
+                return _excluded;
+            }
+        }
 
         // Begins with the loaded terrain-zone root, which may also own non-network vegetation.
         internal SceneCaptureCursor(GameObject zoneRoot)
@@ -68,10 +80,14 @@ namespace Landoria.WorldCrawler.Capture
             var zdo = view == null ? null : view.GetZDO();
             return new CapturedSceneNode
             {
-                Root = root, Path = path, Name = transform.name,
-                Position = CaptureTransform.Vector(transform.position), Rotation = CaptureTransform.Rotation(transform.rotation),
+                Root = root,
+                Path = path,
+                Name = transform.name,
+                Position = CaptureTransform.Vector(transform.position),
+                Rotation = CaptureTransform.Rotation(transform.rotation),
                 LocalPosition = CaptureTransform.Vector(transform.localPosition),
-                LocalRotation = CaptureTransform.Rotation(transform.localRotation), LocalScale = CaptureTransform.Vector(transform.localScale),
+                LocalRotation = CaptureTransform.Rotation(transform.localRotation),
+                LocalScale = CaptureTransform.Vector(transform.localScale),
                 ActiveSelf = transform.gameObject.activeSelf,
                 Components = transform.GetComponents<Component>().Select(component => component == null
                     ? "<missing>" : component.GetType().FullName).OrderBy(name => name, StringComparer.Ordinal).ToArray(),

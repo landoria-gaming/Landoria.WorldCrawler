@@ -9,7 +9,7 @@ namespace Landoria.WorldCrawler.Runtime
     // Reads native map discovery rather than reconstructing hidden locations from the world seed.
     internal static class LandmarkMapSource
     {
-        // Checks the same loaded-map guard used by the exploration snapshot.
+        // Waits for the native map to finish loading before reading landmarks.
         internal static bool Ready(Minimap map)
         {
             return (bool)Field("m_hasGenerated").GetValue(map);
@@ -31,7 +31,9 @@ namespace Landoria.WorldCrawler.Runtime
             var result = new LandmarkInventory();
             var map = Minimap.instance;
             if (map == null || !Ready(map) || ZoneSystem.instance == null || Game.instance == null)
-            { throw new InvalidOperationException("Wait for the world and map before refreshing destinations."); }
+            {
+                throw new InvalidOperationException("Wait for the world and map before refreshing destinations.");
+            }
             Read(result);
             return result;
         }
@@ -49,9 +51,15 @@ namespace Landoria.WorldCrawler.Runtime
             foreach (var pin in pins)
             {
                 if (pin == null || !pin.m_save || pin.m_shouldDelete || pin.m_ownerID != 0
-                    || pin.m_type == Minimap.PinType.Death) { continue; }
+                    || pin.m_type == Minimap.PinType.Death)
+                {
+                    continue;
+                }
                 var kind = PinKind(pin.m_type, circle);
-                if (kind == null || !Explored(map, pin.m_pos)) { continue; }
+                if (kind == null || !Explored(map, pin.m_pos))
+                {
+                    continue;
+                }
                 var identity = kind == "pin" ? "pin:" + (int)pin.m_type : kind;
                 LandmarkSnapshot.Add(result, LandmarkSnapshot.PositionId(identity, pin.m_pos), kind,
                     pin.m_name, "personal-map-pin", pin.m_pos);
@@ -68,22 +76,38 @@ namespace Landoria.WorldCrawler.Runtime
             foreach (var icon in icons)
             {
                 var kind = icon.Value == start ? "start" : LocationKind(icon.Value);
-                if (kind == null) { continue; }
-                if (!Explored(map, icon.Key)) { continue; }
-                if (kind == "start") { foundStart = true; }
+                if (kind == null)
+                {
+                    continue;
+                }
+                if (!Explored(map, icon.Key))
+                {
+                    continue;
+                }
+                if (kind == "start")
+                {
+                    foundStart = true;
+                }
                 LandmarkSnapshot.Add(result, LandmarkSnapshot.PositionId(kind, icon.Key), kind,
                     icon.Value, "native-location-icon", icon.Key);
             }
             if (!foundStart)
-            { result.Warnings.Add("The native start-temple icon is not available; its position was not guessed."); }
+            {
+                result.Warnings.Add("The native start-temple icon is not available; its position was not guessed.");
+            }
         }
 
         // Uses semantic native pin categories instead of localized or user-entered names.
         private static string PinKind(Minimap.PinType type, Minimap.PinType circle)
         {
-            if (type == Minimap.PinType.Boss) { return "boss"; }
+            if (type == Minimap.PinType.Boss)
+            {
+                return "boss";
+            }
             if (type == Minimap.PinType.Hildir1 || type == Minimap.PinType.Hildir2 || type == Minimap.PinType.Hildir3)
-            { return "hildir"; }
+            {
+                return "hildir";
+            }
             return type == circle ? null : "pin";
         }
 
@@ -93,9 +117,14 @@ namespace Landoria.WorldCrawler.Runtime
             Minimap.PinType? result = null;
             foreach (var icon in map.m_icons)
             {
-                if (icon.m_icon == null || icon.m_icon.name != "mapicon_pin") { continue; }
+                if (icon.m_icon == null || icon.m_icon.name != "mapicon_pin")
+                {
+                    continue;
+                }
                 if (result.HasValue && result.Value != icon.m_name)
-                { throw new NotSupportedException("The round map icon has an ambiguous native mapping."); }
+                {
+                    throw new NotSupportedException("The round map icon has an ambiguous native mapping.");
+                }
                 result = icon.m_name;
             }
             return result ?? throw new NotSupportedException("The native round map icon could not be identified; "
@@ -105,11 +134,20 @@ namespace Landoria.WorldCrawler.Runtime
         // Recognizes vanilla location prefab families independently of world names and translations.
         private static string LocationKind(string name)
         {
-            if (string.IsNullOrEmpty(name)) { return null; }
+            if (string.IsNullOrEmpty(name))
+            {
+                return null;
+            }
             if (name.StartsWith("Vendor_", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("BogWitch", StringComparison.OrdinalIgnoreCase)
-                || name.Equals("Hildir_camp", StringComparison.OrdinalIgnoreCase)) { return "merchant"; }
-            if (name.StartsWith("Hildir_", StringComparison.OrdinalIgnoreCase)) { return "hildir"; }
+                || name.Equals("Hildir_camp", StringComparison.OrdinalIgnoreCase))
+            {
+                return "merchant";
+            }
+            if (name.StartsWith("Hildir_", StringComparison.OrdinalIgnoreCase))
+            {
+                return "hildir";
+            }
             return null;
         }
 

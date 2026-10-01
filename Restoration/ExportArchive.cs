@@ -14,13 +14,31 @@ namespace Landoria.WorldCrawler.Restoration
     {
         private readonly FileStream _lock;
         private readonly Dictionary<string, CapturedObject> _latest = new Dictionary<string, CapturedObject>();
-        public string DirectoryPath { get; }
-        public WorldManifest Manifest { get; }
-        public string Fingerprint { get; }
-        public string SeriesIdentity { get; }
-        public int PlannedZoneCount { get; }
+        public string DirectoryPath
+        {
+            get;
+        }
+        public WorldManifest Manifest
+        {
+            get;
+        }
+        public string Fingerprint
+        {
+            get;
+        }
+        public string SeriesIdentity
+        {
+            get;
+        }
+        public int PlannedZoneCount
+        {
+            get;
+        }
         public IEnumerable<CapturedObject> Records => _latest.Values;
-        public CapturedObject[] Connections { get; }
+        public CapturedObject[] Connections
+        {
+            get;
+        }
 
         // Locks and validates the entire export before permitting any world mutation.
         public ExportArchive(string directory)
@@ -35,7 +53,9 @@ namespace Landoria.WorldCrawler.Restoration
                 PlannedZoneCount = Manifest.Zones.Count;
                 Manifest.Zones = Manifest.Zones.Where(zone => zone.Status == "captured").ToList();
                 if (!Manifest.InventoryInitialized || Manifest.Zones.Count == 0)
-                { throw new InvalidDataException("No saved zones are available. Export at least one zone with F8 first."); }
+                {
+                    throw new InvalidDataException("No saved zones are available. Export at least one zone with F8 first.");
+                }
                 SeriesIdentity = StoreValidation.Hash(Encoding.UTF8.GetBytes("export-series-v1\n" +
                     StoreValidation.DirectoryName(Manifest.World) + "\n" + Manifest.CreatedUtc + "\n" +
                     Manifest.CharacterId + "\n" + Path.GetFileName(DirectoryPath)));
@@ -44,12 +64,19 @@ namespace Landoria.WorldCrawler.Restoration
                 {
                     var snapshot = ReadZone(zone);
                     signature.Append(zone.FileName).Append(':').Append(zone.Checksum).Append('\n');
-                    foreach (var item in snapshot.Objects) { Index(item); }
+                    foreach (var item in snapshot.Objects)
+                    {
+                        Index(item);
+                    }
                 }
                 Fingerprint = StoreValidation.Hash(Encoding.UTF8.GetBytes(signature.ToString()));
                 Connections = _latest.Values.Where(v => v.ConnectionType != 0).ToArray();
             }
-            catch { _lock.Dispose(); throw; }
+            catch
+            {
+                _lock.Dispose();
+                throw;
+            }
         }
 
         // Checks both the envelope and its inner payload every time a zone is used.
@@ -61,10 +88,14 @@ namespace Landoria.WorldCrawler.Restoration
             if (envelope.Checksum != zone.Checksum || envelope.ObjectCount != zone.ObjectCount ||
                 envelope.CaptureVersion != zone.CaptureVersion ||
                 !SupportedGameVersions.CanExport(envelope.CaptureVersion))
-            { throw new InvalidDataException("The export manifest and its zone file disagree."); }
+            {
+                throw new InvalidDataException("The export manifest and its zone file disagree.");
+            }
             var snapshot = ZoneSnapshot.Decode(data);
             if (snapshot.ZoneX != zone.X || snapshot.ZoneZ != zone.Z || snapshot.Objects.Count != zone.ObjectCount)
-            { throw new InvalidDataException("The zone payload does not match its envelope."); }
+            {
+                throw new InvalidDataException("The zone payload does not match its envelope.");
+            }
             return snapshot;
         }
 
@@ -81,7 +112,9 @@ namespace Landoria.WorldCrawler.Restoration
         {
             var current = ZoneSignatures();
             if (previous == null || previous.Any(entry => !current.TryGetValue(entry.Key, out var value) || value != entry.Value))
-            { throw new InvalidDataException("Previously accepted zone captures changed or disappeared. Restore their original files before resuming this target."); }
+            {
+                throw new InvalidDataException("Previously accepted zone captures changed or disappeared. Restore their original files before resuming this target.");
+            }
         }
 
         // Deduplicates moving objects across sectors by source identity and observation time.
@@ -91,8 +124,13 @@ namespace Landoria.WorldCrawler.Restoration
             if (_latest.TryGetValue(key, out var previous))
             {
                 if (previous.PrefabHash != item.PrefabHash)
-                { throw new InvalidDataException("A source identity refers to different prefabs."); }
-                if (previous.ObservedUtcTicks >= item.ObservedUtcTicks) { return; }
+                {
+                    throw new InvalidDataException("A source identity refers to different prefabs.");
+                }
+                if (previous.ObservedUtcTicks >= item.ObservedUtcTicks)
+                {
+                    return;
+                }
             }
             item.RawDataBase64 = null;
             _latest[key] = item;
@@ -117,6 +155,9 @@ namespace Landoria.WorldCrawler.Restoration
         }
 
         // Releases the export lock without changing export progress.
-        public void Dispose() { _lock.Dispose(); }
+        public void Dispose()
+        {
+            _lock.Dispose();
+        }
     }
 }

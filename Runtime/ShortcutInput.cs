@@ -1,7 +1,5 @@
 using System;
-using System.Linq;
 using BepInEx.Bootstrap;
-using BepInEx.Configuration;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Runtime
@@ -9,28 +7,32 @@ namespace Landoria.WorldCrawler.Runtime
     // Selects one shortcut while excluding text entry, configuration capture and Tomrer conflicts.
     internal static class ShortcutInput
     {
-        // Gives modifier combinations priority and rejects two indistinguishable actions.
-        public static int Action(ShortcutSettings settings)
+        // Selects a fixed shortcut without intercepting text input or another mod's editor.
+        public static int Action()
         {
             if (GUIUtility.keyboardControl != 0 || Console.IsVisible() ||
-                Chat.instance != null && Chat.instance.HasFocus() || ConfigurationVisible()) { return -1; }
-            var bindings = new[] { settings.Export.Value, settings.Prepare.Value, settings.Restore.Value };
-            var candidates = Enumerable.Range(0, bindings.Length).Where(i => ShortcutSettings.Pressed(bindings[i]))
-                .OrderByDescending(i => bindings[i].Modifiers.Count()).ToList();
-            if (candidates.Count == 0) { return -1; }
-            if (candidates.Count > 1 && bindings[candidates[0]].Modifiers.Count() == bindings[candidates[1]].Modifiers.Count())
-            { throw new InvalidOperationException("Deux actions ont le meme raccourci. Modifie les reglages BepInEx."); }
-            var index = candidates[0];
-            CheckTomrer(bindings[index]);
+                Chat.instance != null && Chat.instance.HasFocus() || ConfigurationVisible())
+            {
+                return -1;
+            }
+            var index = Input.GetKeyDown(CrawlerConstants.ExportKey) ? 0 :
+                Input.GetKeyDown(CrawlerConstants.PrepareKey) ? 1 :
+                Input.GetKeyDown(CrawlerConstants.RestoreKey) ? 2 : -1;
+            if (index < 0)
+            {
+                return -1;
+            }
+            CheckTomrer();
             return index;
         }
 
         // Blocks keys still used by the reference recorder, including modified-key variants.
-        private static void CheckTomrer(KeyboardShortcut shortcut)
+        private static void CheckTomrer()
         {
-            if ((shortcut.MainKey == KeyCode.F8 || shortcut.MainKey == KeyCode.F9 || shortcut.MainKey == KeyCode.F10) &&
-                Chainloader.PluginInfos.ContainsKey("com.mikamarik.valheimtomrer"))
-            { throw new InvalidOperationException("Desactive ValheimTomrer ou choisis d'autres raccourcis : conflit de touches."); }
+            if (Chainloader.PluginInfos.ContainsKey("com.mikamarik.valheimtomrer"))
+            {
+                throw new InvalidOperationException("Disable ValheimTomrer before using World Crawler: F8/F9/F10 conflict.");
+            }
         }
 
         // Respects the optional BepInEx configuration editor without taking a runtime dependency.
@@ -38,9 +40,15 @@ namespace Landoria.WorldCrawler.Runtime
         {
             foreach (var plugin in Chainloader.PluginInfos.Values)
             {
-                if (plugin.Metadata.GUID.IndexOf("configurationmanager", StringComparison.OrdinalIgnoreCase) < 0) { continue; }
+                if (plugin.Metadata.GUID.IndexOf("configurationmanager", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
                 var property = plugin.Instance.GetType().GetProperty("DisplayingWindow");
-                if (property?.PropertyType == typeof(bool) && (bool)property.GetValue(plugin.Instance)) { return true; }
+                if (property?.PropertyType == typeof(bool) && (bool)property.GetValue(plugin.Instance))
+                {
+                    return true;
+                }
             }
             return false;
         }

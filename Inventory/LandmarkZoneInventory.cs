@@ -69,7 +69,10 @@ namespace Landoria.WorldCrawler.Inventory
                 {
                     var dx = Math.Max(Math.Abs(point.X - x * 64.0) - 32.0, 0.0);
                     var dz = Math.Max(Math.Abs(point.Z - z * 64.0) - 32.0, 0.0);
-                    if (dx * dx + dz * dz > radius * radius) { continue; }
+                    if (dx * dx + dz * dz > radius * radius)
+                    {
+                        continue;
+                    }
                     var key = ((long)x << 32) | (uint)z;
                     if (!zones.ContainsKey(key))
                     {

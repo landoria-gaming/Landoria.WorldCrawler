@@ -11,7 +11,10 @@ namespace Landoria.WorldCrawler.Runtime
         // Retains double precision until coordinates reach the Unity UI mesh.
         public ExportMapOverlayBounds(double left, double bottom, double right, double top)
         {
-            Left = left; Bottom = bottom; Right = right; Top = top;
+            Left = left;
+            Bottom = bottom;
+            Right = right;
+            Top = top;
         }
     }
 }

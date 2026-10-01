@@ -10,7 +10,9 @@ namespace Landoria.WorldCrawler.Runtime
         // Stores inclusive sector coordinates without any game or UI dependencies.
         public ExportMapOverlayRegion(int minX, int maxX, int z)
         {
-            MinX = minX; MaxX = maxX; Z = z;
+            MinX = minX;
+            MaxX = maxX;
+            Z = z;
         }
     }
 }

@@ -20,7 +20,10 @@ namespace Landoria.WorldCrawler.Storage
             {
                 throw new NotSupportedException("Unsupported World Crawler selection mode.");
             }
-            try { LandmarkZoneInventory.Validate(Inventory(selection), selection.Radius); }
+            try
+            {
+                LandmarkZoneInventory.Validate(Inventory(selection), selection.Radius);
+            }
             catch (ArgumentException error)
             {
                 throw new InvalidDataException("Landmark selection metadata is invalid.", error);
@@ -39,16 +42,22 @@ namespace Landoria.WorldCrawler.Storage
             var points = new Dictionary<string, LandmarkPoint>(StringComparer.Ordinal);
             foreach (var point in previous == null ? Enumerable.Empty<LandmarkPoint>() : previous.Points)
             {
-                if (!IsMapPin(point)) { points[point.Id] = Copy(point); }
+                if (!IsMapPin(point))
+                {
+                    points[point.Id] = Copy(point);
+                }
             }
             foreach (var point in observed.Points)
             {
                 points[point.Id] = Copy(point);
             }
             var warnings = (previous == null ? Enumerable.Empty<string>() : previous.Warnings).Concat(observed.Warnings);
-            return new LandmarkSelection { Radius = radius,
+            return new LandmarkSelection
+            {
+                Radius = radius,
                 Points = points.Values.OrderBy(point => point.Id, StringComparer.Ordinal).ToList(),
-                Warnings = warnings.Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToList() };
+                Warnings = warnings.Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToList()
+            };
         }
 
         // Adapts stored metadata to the pure landmark geometry API.
@@ -79,8 +88,16 @@ namespace Landoria.WorldCrawler.Storage
         // Makes caller-owned landmark objects independent of the persisted selection.
         private static LandmarkPoint Copy(LandmarkPoint point)
         {
-            return new LandmarkPoint { Id = point.Id, Kind = point.Kind, Name = point.Name, Source = point.Source,
-                X = point.X, Y = point.Y, Z = point.Z };
+            return new LandmarkPoint
+            {
+                Id = point.Id,
+                Kind = point.Kind,
+                Name = point.Name,
+                Source = point.Source,
+                X = point.X,
+                Y = point.Y,
+                Z = point.Z
+            };
         }
 
         // Replaces map-only evidence, including combined native/personal provenance, on every refresh.

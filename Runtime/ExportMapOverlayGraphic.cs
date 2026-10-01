@@ -16,7 +16,9 @@ namespace Landoria.WorldCrawler.Runtime
         // Replaces one immutable batch when a new committed manifest becomes available.
         public void SetRegions(ExportMapOverlayRegion[] regions, int start, int count)
         {
-            _regions = regions; _start = start; _count = count;
+            _regions = regions;
+            _start = start;
+            _count = count;
             raycastTarget = false;
             SetVerticesDirty();
         }
@@ -25,8 +27,12 @@ namespace Landoria.WorldCrawler.Runtime
         public void SetView(Rect uv, int textureSize, float pixelSize, Color tint)
         {
             if (_uv == uv && _textureSize == textureSize && _pixelSize == pixelSize && color == tint)
-            { return; }
-            _uv = uv; _textureSize = textureSize; _pixelSize = pixelSize;
+            {
+                return;
+            }
+            _uv = uv;
+            _textureSize = textureSize;
+            _pixelSize = pixelSize;
             color = tint;
             SetVerticesDirty();
         }
@@ -35,13 +41,18 @@ namespace Landoria.WorldCrawler.Runtime
         protected override void OnPopulateMesh(VertexHelper helper)
         {
             helper.Clear();
-            if (_regions == null) { return; }
+            if (_regions == null)
+            {
+                return;
+            }
             var rectangle = rectTransform.rect;
             for (var index = _start; index < _start + _count; index++)
             {
                 if (ExportMapOverlayGeometry.Project(_regions[index], _textureSize, _pixelSize,
                     _uv.x, _uv.y, _uv.width, _uv.height, out var bounds))
-                { AddRectangle(helper, rectangle, bounds); }
+                {
+                    AddRectangle(helper, rectangle, bounds);
+                }
             }
         }
 

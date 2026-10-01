@@ -19,8 +19,14 @@ namespace Landoria.WorldCrawler.Runtime
         // Honors the explicit jump option, bounded threshold, and one-attempt-per-leg rule.
         internal static bool ShouldJump(bool enabled, bool attempted, double distance, double threshold, bool forced = false)
         {
-            if (attempted || double.IsNaN(distance) || double.IsInfinity(distance)) { return false; }
-            if (forced) { return distance >= 8.0; }
+            if (attempted || double.IsNaN(distance) || double.IsInfinity(distance))
+            {
+                return false;
+            }
+            if (forced)
+            {
+                return distance >= 8.0;
+            }
             return enabled && !double.IsNaN(threshold) && !double.IsInfinity(threshold)
                 && threshold >= 128.0 && threshold <= 10000.0 && distance >= threshold;
         }

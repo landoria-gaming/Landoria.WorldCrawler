@@ -17,16 +17,18 @@ namespace Landoria.WorldCrawler.Runtime
         private void BeginContinuousFlight()
         {
             _receiveHold = false;
-            if (!_settings.ContinuousSprint.Value) { return; }
-            _continuous = new ContinuousCaptureFlight(_player, _flight, _settings.Clearance.Value);
-            _motionGate = new ReceiveMotionGate(_player, Mathf.Clamp(_settings.ZoneTimeout.Value, 30f, 600f));
+            _continuous = new ContinuousCaptureFlight(_player, _flight, CrawlerConstants.Clearance);
+            _motionGate = new ReceiveMotionGate(_player, CrawlerConstants.ZoneTimeout);
             _log.LogInfo($"Receive-controlled flight: native sprint target={_continuous.Speed:F2} m/s; quiet period=2s; outbound jumps and cruise disabled.");
         }
 
         // Holds immediately on relevant arrivals and reports only transitions rather than every frame.
         private bool HoldForReception()
         {
-            if (_motionGate == null) { return false; }
+            if (_motionGate == null)
+            {
+                return false;
+            }
             var hold = _motionGate.Hold();
             if (hold != _receiveHold)
             {
@@ -43,11 +45,7 @@ namespace Landoria.WorldCrawler.Runtime
             _zone.Status = "loaded";
             _zone.UpdatedUtc = DateTime.UtcNow.ToString("o");
             _store.Save();
-            _capture = new ZoneCaptureSession(_zone.X, _zone.Z,
-                Mathf.Clamp(_settings.MinimumDwell.Value, 5f, 120f),
-                Mathf.Clamp(_settings.QuietSeconds.Value, 2f, 60f),
-                Mathf.Clamp(_settings.ZoneTimeout.Value, 30f, 600f),
-                Mathf.Clamp(_settings.ObjectsPerFrame.Value, 5, 200), _continuous != null);
+            _capture = new ZoneCaptureSession(_zone.X, _zone.Z);
             var next = _store.Manifest.Zones.Where(z => z != _zone && z.Status != "captured" && z.Status != "skipped")
                 .OrderBy(z => DistanceSquared(z, new Vector3(_zone.X * 64f, 0f, _zone.Z * 64f)))
                 .ThenBy(z => z.Z).ThenBy(z => z.X).FirstOrDefault();
@@ -58,8 +56,14 @@ namespace Landoria.WorldCrawler.Runtime
         // Advances the route while work proceeds, holding on actual reception or at the safe sector exit.
         private void CaptureMovement()
         {
-            if (_continuous != null && !HoldForReception()) { _continuous.Tick(Time.unscaledDeltaTime); }
-            else { _flight.Tick(_player.transform.position, Time.unscaledDeltaTime); }
+            if (_continuous != null && !HoldForReception())
+            {
+                _continuous.Tick(Time.unscaledDeltaTime);
+            }
+            else
+            {
+                _flight.Tick(_player.transform.position, Time.unscaledDeltaTime);
+            }
         }
     }
 }

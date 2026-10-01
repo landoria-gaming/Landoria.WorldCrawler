@@ -15,18 +15,25 @@ namespace Landoria.WorldCrawler.Flight
         internal static void Validate()
         {
             if (Target == null || Active == null || Cooldown == null)
-            { throw new MissingFieldException("Native teleport recovery is unavailable."); }
+            {
+                throw new MissingFieldException("Native teleport recovery is unavailable.");
+            }
         }
 
         // Includes the frame after native completion, when the cooldown still blocks an ordinary return.
         internal static bool Return(Player player, Vector3 expectedTarget, Vector3 origin, Quaternion rotation)
         {
             var distance = Vector3.Distance((Vector3)Target.GetValue(player), expectedTarget);
-            if (float.IsNaN(distance) || float.IsInfinity(distance) || distance > 0.01f) { return false; }
+            if (float.IsNaN(distance) || float.IsInfinity(distance) || distance > 0.01f)
+            {
+                return false;
+            }
             Active.SetValue(player, false);
             Cooldown.SetValue(player, 2f);
             if (!player.TeleportTo(origin, rotation, true))
-            { throw new InvalidOperationException("The owned native transition stopped, but emergency return was refused."); }
+            {
+                throw new InvalidOperationException("The owned native transition stopped, but emergency return was refused.");
+            }
             return true;
         }
 
@@ -34,7 +41,10 @@ namespace Landoria.WorldCrawler.Flight
         private static FieldInfo Field(string name, Type type)
         {
             var field = typeof(Player).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
-            if (field == null || field.FieldType != type) { throw new MissingFieldException(typeof(Player).FullName, name); }
+            if (field == null || field.FieldType != type)
+            {
+                throw new MissingFieldException(typeof(Player).FullName, name);
+            }
             return field;
         }
     }

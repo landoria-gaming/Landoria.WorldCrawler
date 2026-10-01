@@ -9,7 +9,10 @@ namespace Landoria.WorldCrawler.Flight
         // Native monsters, animals, turrets and perception helpers all honor this query.
         private static void Postfix(Player __instance, ref bool __result)
         {
-            if (FlightController.IsControlled(__instance)) { __result = true; }
+            if (FlightController.IsControlled(__instance))
+            {
+                __result = true;
+            }
         }
     }
 }

@@ -26,7 +26,10 @@ namespace Landoria.WorldCrawler.Runtime
         public static void Show(string text)
         {
             var player = Player.m_localPlayer;
-            if (player == null || _method == null) { return; }
+            if (player == null || _method == null)
+            {
+                return;
+            }
             var args = _latest ? new object[] { MessageHud.MessageType.Center, text, 0, null, false }
                 : new object[] { MessageHud.MessageType.Center, text, 0, null };
             _method.Invoke(player, args);

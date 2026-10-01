@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using Landoria.WorldCrawler.Runtime;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Capture
@@ -12,10 +13,6 @@ namespace Landoria.WorldCrawler.Capture
         private readonly int _x;
         private readonly int _z;
         private readonly Vector3 _center;
-        private readonly float _minimumDwell;
-        private readonly float _quiet;
-        private readonly float _timeout;
-        private readonly int _budget;
         private readonly float _started;
         private readonly long _startedUtc;
         private readonly CaptureApi _api;
@@ -38,38 +35,33 @@ namespace Landoria.WorldCrawler.Capture
         private float _nextSample;
         private bool _verifiedScene;
         private readonly CaptureReceiveWatch _receiver;
-        private readonly bool _adaptive;
         private float _networkQuiet;
         private float _nextLoadCheck;
         private bool _areaReady;
 
-        public ZoneSnapshot Result { get; private set; }
-        public string Status { get; private set; }
-        public int ObservedObjectCount { get; private set; }
+        public ZoneSnapshot Result
+        {
+            get; private set;
+        }
+        public string Status
+        {
+            get; private set;
+        }
+        public int ObservedObjectCount
+        {
+            get; private set;
+        }
 
         // Configures bounded work and waits without enabling world generation or network commands.
-        public ZoneCaptureSession(int x, int z, float minimumDwellSeconds = 8f,
-            float quietSeconds = 3f, float timeoutSeconds = 90f, int objectsPerFrame = 40,
-            bool adaptiveLoading = false)
+        public ZoneCaptureSession(int x, int z)
         {
-            if (minimumDwellSeconds < 0f || quietSeconds <= 0f || timeoutSeconds <= minimumDwellSeconds
-                || objectsPerFrame < 1 || InvalidTiming(minimumDwellSeconds)
-                || InvalidTiming(quietSeconds) || InvalidTiming(timeoutSeconds))
-            {
-                throw new ArgumentOutOfRangeException("Capture timing and frame budgets must be positive.");
-            }
             _x = x;
             _z = z;
             _center = new Vector3(x * 64f, 0f, z * 64f);
-            _minimumDwell = minimumDwellSeconds;
-            _quiet = quietSeconds;
-            _timeout = timeoutSeconds;
-            _budget = objectsPerFrame;
             _started = Time.realtimeSinceStartup;
             _startedUtc = DateTime.UtcNow.Ticks;
             _api = new CaptureApi();
             _reader = new ObjectCapture(_api);
-            _adaptive = adaptiveLoading;
             _receiver = new CaptureReceiveWatch(x, z);
             Status = "Waiting for terrain and received objects.";
         }
@@ -81,7 +73,7 @@ namespace Landoria.WorldCrawler.Capture
             {
                 return true;
             }
-            if (Time.realtimeSinceStartup - _started >= _timeout)
+            if (Time.realtimeSinceStartup - _started >= CrawlerConstants.ZoneTimeout)
             {
                 throw new TimeoutException("Zone observation timed out: " + Status);
             }
@@ -108,10 +100,16 @@ namespace Landoria.WorldCrawler.Capture
         // Requires a real local terrain tile and completed pending terrain rebuilds.
         private bool Ready()
         {
-            if (_receiver.Error != null) { throw new InvalidOperationException("Capture receiver failed: " + _receiver.Error); }
+            if (_receiver.Error != null)
+            {
+                throw new InvalidOperationException("Capture receiver failed: " + _receiver.Error);
+            }
             if (ZNet.instance == null || ZNet.GetConnectionStatus() != ZNet.ConnectionStatus.Connected ||
                 ZNet.instance.HasBadConnection())
-            { Status = "Waiting for a healthy server connection."; return false; }
+            {
+                Status = "Waiting for a healthy server connection.";
+                return false;
+            }
             if (ZoneSystem.instance == null || ZNetScene.instance == null || ZDOMan.instance == null
                 || !ZoneSystem.instance.IsZoneLoaded(_center))
             {
@@ -124,7 +122,10 @@ namespace Landoria.WorldCrawler.Capture
                 Status = "Waiting for the terrain heightmap.";
                 return false;
             }
-            if (!LoadQueueReady()) { return false; }
+            if (!LoadQueueReady())
+            {
+                return false;
+            }
             if (_readySince < 0f)
             {
                 _readySince = Time.realtimeSinceStartup;
@@ -143,7 +144,10 @@ namespace Landoria.WorldCrawler.Capture
                 ZNet.instance.GetNetStats(out _, out _, out var ping, out _, out _);
                 _networkQuiet = CaptureStability.QuietSeconds(ping);
             }
-            if (!_areaReady) { Status = "Waiting for native object creation in this area."; }
+            if (!_areaReady)
+            {
+                Status = "Waiting for native object creation in this area.";
+            }
             return _areaReady;
         }
 
@@ -177,7 +181,7 @@ namespace Landoria.WorldCrawler.Capture
         {
             var clock = Stopwatch.StartNew();
             var count = 0;
-            while (_index < _candidates.Count && count++ < _budget && clock.ElapsedMilliseconds < 4)
+            while (_index < _candidates.Count && count++ < CrawlerConstants.ObjectsPerFrame && clock.ElapsedMilliseconds < 4)
             {
                 Observe(_candidates[_index++]);
             }
@@ -264,9 +268,8 @@ namespace Landoria.WorldCrawler.Capture
             }
             _previousShape = _shape;
             _nextSample = now + 0.5f;
-            var quiet = _adaptive ? _networkQuiet : Mathf.Max(_quiet, _networkQuiet);
-            if ((!_adaptive && now - _readySince < _minimumDwell) ||
-                !CaptureStability.Ready(_passes, _pendingViews, now, _stableSince, _receiver.LastChange, quiet))
+            var quiet = _networkQuiet;
+            if (!CaptureStability.Ready(_passes, _pendingViews, now, _stableSince, _receiver.LastChange, quiet))
             {
                 Status = "Validating zone: " + _sample.Count + " objects; pending instances=" + _pendingViews +
                     "; relevant receive age=" + (now - _receiver.LastChange).ToString("F1") +
@@ -296,7 +299,7 @@ namespace Landoria.WorldCrawler.Capture
         // Finishes static layout before rechecking the sector membership one last time.
         private bool StepScene()
         {
-            if (!_scene.Step(_budget))
+            if (!_scene.Step(CrawlerConstants.ObjectsPerFrame))
             {
                 return false;
             }
@@ -321,12 +324,20 @@ namespace Landoria.WorldCrawler.Capture
             }
             Result = new ZoneSnapshot
             {
-                ZoneX = _x, ZoneZ = _z, StartedUtcTicks = _startedUtc, FinishedUtcTicks = DateTime.UtcNow.Ticks,
-                ObservationPasses = _passes, DwellSeconds = Time.realtimeSinceStartup - _readySince,
-                StableSeconds = Time.realtimeSinceStartup - Mathf.Max(_stableSince, _receiver.LastChange), TerrainReady = true,
-                Objects = _sample, SceneNodes = _sceneNodes ?? new List<CapturedSceneNode>(),
-                DungeonExpected = dungeonExpected, DungeonEvidenceComplete = !dungeonExpected || interiorObjects > 0,
-                InteriorObjectCount = interiorObjects, NaturalAbsenceComplete = true
+                ZoneX = _x,
+                ZoneZ = _z,
+                StartedUtcTicks = _startedUtc,
+                FinishedUtcTicks = DateTime.UtcNow.Ticks,
+                ObservationPasses = _passes,
+                DwellSeconds = Time.realtimeSinceStartup - _readySince,
+                StableSeconds = Time.realtimeSinceStartup - Mathf.Max(_stableSince, _receiver.LastChange),
+                TerrainReady = true,
+                Objects = _sample,
+                SceneNodes = _sceneNodes ?? new List<CapturedSceneNode>(),
+                DungeonExpected = dungeonExpected,
+                DungeonEvidenceComplete = !dungeonExpected || interiorObjects > 0,
+                InteriorObjectCount = interiorObjects,
+                NaturalAbsenceComplete = true
             };
             Result.SetExclusionCounts(_exclusions.Concat(_sceneExclusions));
             Result.BuildSummaries();
@@ -352,13 +363,10 @@ namespace Landoria.WorldCrawler.Capture
             return true;
         }
 
-        // Prevents invalid configuration values from creating an unbounded unattended wait.
-        private static bool InvalidTiming(float seconds)
-        {
-            return float.IsNaN(seconds) || float.IsInfinity(seconds);
-        }
-
         // Detaches network observation when this zone is committed or abandoned.
-        public void Dispose() { _receiver.Dispose(); }
+        public void Dispose()
+        {
+            _receiver.Dispose();
+        }
     }
 }

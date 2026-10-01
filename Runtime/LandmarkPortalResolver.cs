@@ -26,24 +26,46 @@ namespace Landoria.WorldCrawler.Runtime
             _network = ZNet.instance ?? throw new InvalidOperationException("The network session is not ready.");
             _worldUid = ZNet.World?.m_uid ?? throw new InvalidOperationException("No connected world.");
             _started = Time.realtimeSinceStartup;
-            if (_network.IsServer()) { _done = true; return; }
+            if (_network.IsServer())
+            {
+                _done = true;
+                return;
+            }
             CollectTargets();
         }
 
         // Advances bounded requests on the main thread and finishes after replies or a short timeout.
         internal bool Step()
         {
-            if (_done) { return true; }
+            if (_done)
+            {
+                return true;
+            }
             if (ZDOMan.instance != _manager || ZNet.instance != _network || ZNet.World?.m_uid != _worldUid
                 || ZNet.GetConnectionStatus() != ZNet.ConnectionStatus.Connected)
-            { throw new InvalidOperationException("The world connection changed while resolving portal destinations."); }
+            {
+                throw new InvalidOperationException("The world connection changed while resolving portal destinations.");
+            }
             foreach (var id in _pending.Keys.ToArray())
             {
-                if (LandmarkPortalSource.ValidPortal(_manager.GetZDO(id))) { _pending.Remove(id); }
+                if (LandmarkPortalSource.ValidPortal(_manager.GetZDO(id)))
+                {
+                    _pending.Remove(id);
+                }
             }
-            if (_pending.Count == 0) { _done = true; return true; }
-            if (Time.realtimeSinceStartup - _started >= 10f) { return Finish(); }
-            if (Time.realtimeSinceStartup >= _nextBatch) { RequestBatch(); }
+            if (_pending.Count == 0)
+            {
+                _done = true;
+                return true;
+            }
+            if (Time.realtimeSinceStartup - _started >= 10f)
+            {
+                return Finish();
+            }
+            if (Time.realtimeSinceStartup >= _nextBatch)
+            {
+                RequestBatch();
+            }
             return false;
         }
 
@@ -53,16 +75,28 @@ namespace Landoria.WorldCrawler.Runtime
             var overflow = false;
             foreach (var portal in LandmarkPortalSource.Portals())
             {
-                if (!LandmarkPortalSource.ValidPortal(portal)) { continue; }
+                if (!LandmarkPortalSource.ValidPortal(portal))
+                {
+                    continue;
+                }
                 var target = portal.GetConnectionZDOID(ZDOExtraData.ConnectionType.Portal);
                 if (target == ZDOID.None || _pending.ContainsKey(target)
-                    || LandmarkPortalSource.ValidPortal(_manager.GetZDO(target))) { continue; }
-                if (_pending.Count == MaximumTargets) { overflow = true; continue; }
+                    || LandmarkPortalSource.ValidPortal(_manager.GetZDO(target)))
+                {
+                    continue;
+                }
+                if (_pending.Count == MaximumTargets)
+                {
+                    overflow = true;
+                    continue;
+                }
                 _pending.Add(target, 0);
                 _requests.Enqueue(target);
             }
             if (overflow)
-            { Warnings.Add("Portal endpoint requests were capped at 256 known links; additional endpoints remain unresolved."); }
+            {
+                Warnings.Add("Portal endpoint requests were capped at 256 known links; additional endpoints remain unresolved.");
+            }
         }
 
         // Sends no more than four requests per batch, forty per second, and two per target.
@@ -73,12 +107,21 @@ namespace Landoria.WorldCrawler.Runtime
             for (var index = 0; index < count; index++)
             {
                 var id = _requests.Dequeue();
-                if (!_pending.TryGetValue(id, out var attempts)) { continue; }
+                if (!_pending.TryGetValue(id, out var attempts))
+                {
+                    continue;
+                }
                 if (attempts > 0 && Time.realtimeSinceStartup - _started < 2f)
-                { _requests.Enqueue(id); continue; }
+                {
+                    _requests.Enqueue(id);
+                    continue;
+                }
                 _manager.RequestZDO(id);
                 _pending[id] = attempts + 1;
-                if (attempts == 0) { _requests.Enqueue(id); }
+                if (attempts == 0)
+                {
+                    _requests.Enqueue(id);
+                }
             }
         }
 

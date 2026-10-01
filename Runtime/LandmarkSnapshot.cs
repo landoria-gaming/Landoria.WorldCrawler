@@ -37,13 +37,21 @@ namespace Landoria.WorldCrawler.Runtime
             var existing = result.Points.FirstOrDefault(point => point.Id == id);
             if (existing != null)
             {
-                if (!existing.Source.Split('+').Contains(source)) { existing.Source += "+" + source; }
+                if (!existing.Source.Split('+').Contains(source))
+                {
+                    existing.Source += "+" + source;
+                }
                 return;
             }
             result.Points.Add(new LandmarkPoint
             {
-                Id = id, Kind = kind, Name = name ?? "", Source = source,
-                X = position.x, Y = position.y, Z = position.z
+                Id = id,
+                Kind = kind,
+                Name = name ?? "",
+                Source = source,
+                X = position.x,
+                Y = position.y,
+                Z = position.z
             });
         }
 

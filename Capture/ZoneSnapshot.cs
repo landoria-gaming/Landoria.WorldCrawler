@@ -26,7 +26,8 @@ namespace Landoria.WorldCrawler.Capture
         [DataMember(Order = 12)] public List<CapturedSceneNode> SceneNodes = new List<CapturedSceneNode>();
         [DataMember(Order = 13)] public List<CaptureCount> PrefabCounts = new List<CaptureCount>();
         [DataMember(Order = 14)] public List<CaptureCount> CategoryCounts = new List<CaptureCount>();
-        [DataMember(Order = 15)] public string[] Limitations =
+        [DataMember(Order = 15)]
+        public string[] Limitations =
         {
             "The server does not acknowledge a complete zone snapshot to the client.",
             "Absence must not authorize automatic destructive restoration.",

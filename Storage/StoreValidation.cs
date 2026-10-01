@@ -18,7 +18,10 @@ namespace Landoria.WorldCrawler.Storage
             var clean = new string(world.SeedText.Select(c =>
                 c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
                 c == '-' || c == '_' ? c : '_').Take(40).ToArray());
-            if (clean.Length == 0) { clean = "empty"; }
+            if (clean.Length == 0)
+            {
+                clean = "empty";
+            }
             return "world_" + world.Uid.ToString(CultureInfo.InvariantCulture) + "_" + clean + "_" +
                 world.Seed.ToString(CultureInfo.InvariantCulture) + "_" +
                 Hash(Encoding.UTF8.GetBytes(world.SeedText)).Substring(0, 12) + (scope == null ? "" : "_" + scope);
@@ -58,7 +61,10 @@ namespace Landoria.WorldCrawler.Storage
             {
                 throw new InvalidDataException("Invalid World Crawler manifest.");
             }
-            if (manifest.FormatVersion != 1) { throw new NotSupportedException("Unsupported World Crawler manifest version."); }
+            if (manifest.FormatVersion != 1)
+            {
+                throw new NotSupportedException("Unsupported World Crawler manifest version.");
+            }
             if (!expected.Matches(manifest.World))
             {
                 throw new InvalidOperationException("World UID, seed, or generation version differs from the saved crawl.");
@@ -66,6 +72,10 @@ namespace Landoria.WorldCrawler.Storage
             if (manifest.InventoryInitialized && string.IsNullOrEmpty(manifest.CharacterId))
             {
                 throw new InvalidDataException("The inventory has no source character identity.");
+            }
+            if (manifest.InventoryInitialized && manifest.Selection == null)
+            {
+                throw new NotSupportedException("Only landmark exports are supported. Start a new landmark export.");
             }
             if (!manifest.InventoryInitialized && (manifest.Zones.Count != 0 || manifest.Selection != null))
             {
@@ -98,8 +108,14 @@ namespace Landoria.WorldCrawler.Storage
                 throw new InvalidDataException("Zone header, world identity, or coordinates are invalid.");
             }
             byte[] payload;
-            try { payload = Convert.FromBase64String(envelope.PayloadBase64); }
-            catch (FormatException error) { throw new InvalidDataException("Zone payload is not valid Base64.", error); }
+            try
+            {
+                payload = Convert.FromBase64String(envelope.PayloadBase64);
+            }
+            catch (FormatException error)
+            {
+                throw new InvalidDataException("Zone payload is not valid Base64.", error);
+            }
             if (payload.Length != envelope.PayloadLength || !string.Equals(Hash(payload), envelope.Checksum,
                 StringComparison.Ordinal))
             {
@@ -111,8 +127,7 @@ namespace Landoria.WorldCrawler.Storage
         // Validates each inventory record without resolving untrusted file paths.
         private static void ValidateEntry(ZoneEntry zone)
         {
-            if (zone == null || zone.Origin == ExplorationOrigin.None ||
-                (zone.Origin & ~(ExplorationOrigin.Personal | ExplorationOrigin.Shared | ExplorationOrigin.PointOfInterest)) != 0 ||
+            if (zone == null || zone.Origin != ExplorationOrigin.PointOfInterest ||
                 !new[] { "pending", "loaded", "captured", "skipped", "failed" }.Contains(zone.Status))
             {
                 throw new InvalidDataException("An inventory entry has invalid origin or status.");
@@ -126,12 +141,6 @@ namespace Landoria.WorldCrawler.Storage
         // Ensures saved counters and return checkpoints can be interpreted safely.
         private static void ValidateProgress(WorldManifest manifest)
         {
-            if (manifest.PersonalPixels < 0 || manifest.SharedPixels < 0 || manifest.CombinedPixels < 0 ||
-                manifest.CombinedPixels < Math.Max(manifest.PersonalPixels, manifest.SharedPixels) ||
-                manifest.CombinedPixels > manifest.PersonalPixels + manifest.SharedPixels)
-            {
-                throw new InvalidDataException("Exploration pixel counts are inconsistent.");
-            }
             if (manifest.ReturnPending && (!manifest.InventoryInitialized || string.IsNullOrEmpty(manifest.CharacterId) ||
                 string.IsNullOrEmpty(manifest.ReturnCharacterId) ||
                 manifest.ReturnPosition == null || manifest.ReturnPosition.Length != 3 ||

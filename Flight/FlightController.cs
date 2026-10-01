@@ -4,7 +4,7 @@ using UnityEngine;
 namespace Landoria.WorldCrawler.Flight
 {
     // Moves one local player while retaining ordinary networking, damage, and death handling.
-    internal sealed class FlightController
+    internal sealed partial class FlightController
     {
         private static FlightController current;
         private Player player;
@@ -20,15 +20,39 @@ namespace Landoria.WorldCrawler.Flight
         private Vector3 transitFrom;
         private Vector3 transitExit;
         private float transitStarted;
-        public Vector3 Origin { get; private set; }
-        public Quaternion OriginRotation { get; private set; }
-        public bool Active { get; private set; }
+        public Vector3 Origin
+        {
+            get; private set;
+        }
+        public Quaternion OriginRotation
+        {
+            get; private set;
+        }
+        public bool Active
+        {
+            get; private set;
+        }
         public float Speed { get; set; } = 35f;
-        public string AchievementSummary { get; private set; }
-        public bool? AchievementEligible { get; private set; }
-        public bool EmergencyReturnRequested { get; private set; }
-        public bool NativeTransitActive { get; private set; }
-        public bool NativeTransitSucceeded { get; private set; }
+        public string AchievementSummary
+        {
+            get; private set;
+        }
+        public bool? AchievementEligible
+        {
+            get; private set;
+        }
+        public bool EmergencyReturnRequested
+        {
+            get; private set;
+        }
+        public bool NativeTransitActive
+        {
+            get; private set;
+        }
+        public bool NativeTransitSucceeded
+        {
+            get; private set;
+        }
         public bool CanEndAtOrigin => Active && player != null &&
             Vector3.Distance(player.transform.position, Origin) <= 0.25f;
 
@@ -82,67 +106,6 @@ namespace Landoria.WorldCrawler.Flight
             return Vector3.Distance(expectedPosition, target) <= 0.05f;
         }
 
-        // Invokes a physically reached native portal without replacing its inventory or world-rule checks.
-        public bool BeginPortalTransit(TeleportWorld portal, Vector3 expectedExit)
-        {
-            ValidateActive();
-            if (portal == null || !portal.isActiveAndEnabled || !Finite(expectedExit) ||
-                Vector3.Distance(player.transform.position, portal.transform.position) > portal.m_activationRange)
-            { throw new InvalidOperationException("Reach the loaded portal before requesting native passage."); }
-            return BeginNativeTransit(expectedExit, () => { portal.Teleport(player); return player.IsTeleporting(); });
-        }
-
-        // Uses the native loading transition for an explicitly authorized, known coordinate destination.
-        public bool BeginCoordinateTransit(Vector3 target)
-        {
-            ValidateActive();
-            if (!Finite(target) || Mathf.Abs(target.x) > 20000f || Mathf.Abs(target.z) > 20000f ||
-                Mathf.Abs(target.y) > 20000f)
-            { throw new ArgumentException("The coordinate jump destination is outside the supported world bounds."); }
-            return BeginNativeTransit(target, () => player.TeleportTo(target, OriginRotation, true));
-        }
-
-        // Records ownership before suspending crawler motion for one accepted native transition.
-        private bool BeginNativeTransit(Vector3 target, Func<bool> start)
-        {
-            NativeTransitRecovery.Validate();
-            achievements.Validate();
-            transitFrom = player.transform.position;
-            transitExit = target;
-            NativeTransitSucceeded = false;
-            if (!start()) { return false; }
-            NativeTransitActive = true;
-            transitStarted = Time.time;
-            physics.SuspendForNativeTransit();
-            return true;
-        }
-
-        // Waits for native completion and reacquires motion only at the expected endpoint or source.
-        public bool TickNativeTransit()
-        {
-            if (!NativeTransitActive) { throw new InvalidOperationException("No crawler native transition is active."); }
-            ValidateActive(true);
-            achievements.Validate();
-            var position = player.transform.position;
-            var atSource = Vector3.Distance(position, transitFrom) <= 4f;
-            var atExit = Vector2.Distance(new Vector2(position.x, position.z),
-                new Vector2(transitExit.x, transitExit.z)) <= 8f && Mathf.Abs(position.y - transitExit.y) <= 1000f;
-            if (!atSource && !atExit)
-            { throw new InvalidOperationException("Native travel moved outside its verified endpoints."); }
-            if (player.IsTeleporting())
-            {
-                if (Time.time - transitStarted > 120f) { throw new TimeoutException("The native transition did not finish."); }
-                return false;
-            }
-            NativeTransitSucceeded = atExit;
-            restoreOriginalMotion = false;
-            expectedPosition = position;
-            physics.Activate();
-            physics.Move(expectedPosition, OriginRotation);
-            NativeTransitActive = false;
-            return true;
-        }
-
         // Restores the saved pose and movement state after a controlled return to the origin.
         public void End()
         {
@@ -160,8 +123,14 @@ namespace Landoria.WorldCrawler.Flight
         public bool RaiseReturnHeight(float height)
         {
             ValidateActive();
-            if (float.IsNaN(height) || float.IsInfinity(height)) { throw new ArgumentException("Invalid return height."); }
-            if (height <= Origin.y) { return false; }
+            if (float.IsNaN(height) || float.IsInfinity(height))
+            {
+                throw new ArgumentException("Invalid return height.");
+            }
+            if (height <= Origin.y)
+            {
+                return false;
+            }
             Origin = new Vector3(Origin.x, height, Origin.z);
             restoreOriginalMotion = false;
             return true;
@@ -174,7 +143,11 @@ namespace Landoria.WorldCrawler.Flight
             {
                 return;
             }
-            if (NativeTransitActive && CanOwnTransitRecovery()) { AbortNativeTransit(); return; }
+            if (NativeTransitActive && CanOwnTransitRecovery())
+            {
+                AbortNativeTransit();
+                return;
+            }
             try
             {
                 if (CanEndAtOrigin && CanRequestEmergencyReturn())
@@ -250,11 +223,16 @@ namespace Landoria.WorldCrawler.Flight
         public static void ReleaseStaleControl()
         {
             var flight = current;
-            if (flight == null || !flight.Active) { return; }
+            if (flight == null || !flight.Active)
+            {
+                return;
+            }
             if (flight.player == null || flight.player != Player.m_localPlayer || flight.player.IsDead() ||
                 flight.network == null || flight.network != ZNet.instance || ZNet.World == null ||
                 ZNet.World.m_uid != flight.worldUid || ZNet.GetConnectionStatus() != ZNet.ConnectionStatus.Connected)
-            { flight.Release(false); }
+            {
+                flight.Release(false);
+            }
         }
 
         // Stops on a new world, lost ownership, death, teleport, or external position correction.

@@ -30,17 +30,24 @@ namespace Landoria.WorldCrawler.Storage
                 var label = labels.TryGetValue(group.Key, out var name) ? name : group.Key;
                 block.AppendLine($"  {group.Count(),6} x {Line(label)} [{Line(group.Key)}]");
             }
-            if (snapshot.Objects.Count == 0) { block.AppendLine("  No persistent objects."); }
+            if (snapshot.Objects.Count == 0)
+            {
+                block.AppendLine("  No persistent objects.");
+            }
             block.AppendLine("Container contents are stored in their data and are not counted as separate objects.");
             block.AppendLine();
             using (var stream = new FileStream(Path.Combine(directory, FileName), FileMode.Append,
                 FileAccess.Write, FileShare.Read))
             using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
-            { writer.Write(block.ToString()); }
+            {
+                writer.Write(block.ToString());
+            }
         }
 
         // Keeps object names on a single report line.
         private static string Line(string value)
-        { return (value ?? "").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' '); }
+        {
+            return (value ?? "").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+        }
     }
 }

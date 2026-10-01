@@ -14,12 +14,16 @@ namespace Landoria.WorldCrawler.Restoration
         public static void RequireCurrent()
         {
             if (!SupportedGameVersions.IsCurrent(GameContext.GameVersion))
-            { throw new NotSupportedException("World preparation and restoration require Valheim 1.0.x."); }
+            {
+                throw new NotSupportedException("World preparation and restoration require Valheim 1.0.x.");
+            }
             CurrentSaveCompatibility.Validate();
             var property = typeof(FileHelpers).GetProperty("LocalStorageSupportedAndAllowed",
                 BindingFlags.Public | BindingFlags.Static);
             if (property == null || !(bool)property.GetValue(null))
-            { throw new InvalidOperationException("Local saves are unavailable; cloud restoration is not supported."); }
+            {
+                throw new InvalidOperationException("Local saves are unavailable; cloud restoration is not supported.");
+            }
         }
 
         // Reads all game-visible local and cloud worlds for collision detection.
@@ -49,14 +53,19 @@ namespace Landoria.WorldCrawler.Restoration
             Call(typeof(SaveSystem), null, "SetSaveNumber", new[] { typeof(uint) }, 0u);
             Call(typeof(World), world, "SaveWorldFWLData", new[] { typeof(DateTime) }, DateTime.Now);
             if (world.m_fileSource != FileHelpers.FileSource.Local)
-            { throw new InvalidOperationException("The engine changed the requested local save destination."); }
+            {
+                throw new InvalidOperationException("The engine changed the requested local save destination.");
+            }
             return (string)Call(typeof(World), world, "GetSaveFWLPath", Type.EmptyTypes);
         }
 
         // Requests a world-only asynchronous save and returns its previously committed generation.
         public static uint BeginSave()
         {
-            if (ZNet.instance.IsSaving()) { throw new InvalidOperationException("Wait for the current world save."); }
+            if (ZNet.instance.IsSaving())
+            {
+                throw new InvalidOperationException("Wait for the current world save.");
+            }
             var before = SaveNumber();
             Call(typeof(ZNet), ZNet.instance, "Save", new[] { typeof(bool), typeof(bool), typeof(bool) },
                 false, false, false);
@@ -66,14 +75,22 @@ namespace Landoria.WorldCrawler.Restoration
         // Confirms the engine committed a newer complete chunked generation.
         public static bool SaveFinished(uint before, string directory)
         {
-            if (ZNet.instance.IsSaving()) { return false; }
+            if (ZNet.instance.IsSaving())
+            {
+                return false;
+            }
             var after = SaveNumber();
             var file = Path.Combine(directory, "_main." + after + ".ok");
             if (after <= before || !File.Exists(file))
-            { throw new IOException("Valheim did not confirm the new world save; restore progress was not committed."); }
+            {
+                throw new IOException("Valheim did not confirm the new world save; restore progress was not committed.");
+            }
             using (var reader = new BinaryReader(File.OpenRead(file)))
             {
-                if (reader.ReadInt32() != 41) { throw new IOException("Invalid native world-save completion marker."); }
+                if (reader.ReadInt32() != 41)
+                {
+                    throw new IOException("Invalid native world-save completion marker.");
+                }
             }
             return true;
         }
@@ -88,7 +105,9 @@ namespace Landoria.WorldCrawler.Restoration
         public static void RefreshMenu()
         {
             if (FejdStartup.instance != null)
-            { Call(typeof(FejdStartup), FejdStartup.instance, "UpdateWorldList", new[] { typeof(bool) }, false); }
+            {
+                Call(typeof(FejdStartup), FejdStartup.instance, "UpdateWorldList", new[] { typeof(bool) }, false);
+            }
         }
 
         // Requires an exact reflected signature instead of choosing a changing overload by name.

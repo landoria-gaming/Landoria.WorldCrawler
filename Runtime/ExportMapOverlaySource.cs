@@ -14,27 +14,42 @@ namespace Landoria.WorldCrawler.Runtime
 
         // Returns only successful captures whose files still exist in the chosen selection.
         public static ExportMapOverlayRegion[] Read(string directory, WorldIdentity world,
-            string characterId, bool landmarks, int radius)
-        { return ReadProgress(directory, world, characterId, landmarks, radius).Captured; }
+            string characterId, int radius)
+        {
+            return ReadProgress(directory, world, characterId, radius).Captured;
+        }
 
         // Returns separately merged committed and unfinished sectors from one validated checkpoint.
         public static ExportMapOverlayData ReadProgress(string directory, WorldIdentity world,
-            string characterId, bool landmarks, int radius)
+            string characterId, int radius)
         {
             var path = Path.Combine(directory, "manifest.json");
-            if (!File.Exists(path)) { return new ExportMapOverlayData(); }
+            if (!File.Exists(path))
+            {
+                return new ExportMapOverlayData();
+            }
             var manifest = ReadManifest(path);
             StoreValidation.Manifest(manifest, world);
-            if (!manifest.InventoryInitialized) { return new ExportMapOverlayData(); }
+            if (!manifest.InventoryInitialized)
+            {
+                return new ExportMapOverlayData();
+            }
             if (!string.Equals(manifest.CharacterId, characterId, StringComparison.Ordinal))
-            { throw new InvalidDataException("The export map belongs to another character."); }
-            ValidateSelection(manifest, landmarks, radius);
+            {
+                throw new InvalidDataException("The export map belongs to another character.");
+            }
+            ValidateSelection(manifest, radius);
             if (manifest.Zones.Count > MaximumZoneCount)
-            { throw new InvalidDataException("The export map exceeds the supported sector count."); }
+            {
+                throw new InvalidDataException("The export map exceeds the supported sector count.");
+            }
             var captured = manifest.Zones.Where(zone => Captured(directory, zone));
             var remaining = manifest.Zones.Where(zone => zone.Status != "skipped" && !Captured(directory, zone));
-            return new ExportMapOverlayData { Captured = ExportMapOverlayGeometry.Merge(captured),
-                Remaining = ExportMapOverlayGeometry.Merge(remaining) };
+            return new ExportMapOverlayData
+            {
+                Captured = ExportMapOverlayGeometry.Merge(captured),
+                Remaining = ExportMapOverlayGeometry.Merge(remaining)
+            };
         }
 
         // Requires both committed metadata and the corresponding canonical zone file.
@@ -50,19 +65,22 @@ namespace Landoria.WorldCrawler.Runtime
             using (var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
             {
                 if (input.Length > MaximumManifestLength)
-                { throw new InvalidDataException("The export map manifest exceeds 64 MiB."); }
+                {
+                    throw new InvalidDataException("The export map manifest exceeds 64 MiB.");
+                }
                 var serializer = new DataContractJsonSerializer(typeof(WorldManifest),
                     new DataContractJsonSerializerSettings { MaxItemsInObjectGraph = 8000000 });
                 return (WorldManifest)serializer.ReadObject(input);
             }
         }
 
-        // Refuses files moved into the wrong mode or radius directory.
-        private static void ValidateSelection(WorldManifest manifest, bool landmarks, int radius)
+        // Refuses files moved into the wrong landmark radius directory.
+        private static void ValidateSelection(WorldManifest manifest, int radius)
         {
-            if (landmarks ? manifest.Selection == null || manifest.Selection.Mode != "landmarks"
-                || manifest.Selection.Radius != radius : manifest.Selection != null)
-            { throw new InvalidDataException("The export map selection does not match the configured mode and radius."); }
+            if (manifest.Selection == null || manifest.Selection.Mode != "landmarks" || manifest.Selection.Radius != radius)
+            {
+                throw new InvalidDataException("The export map selection does not match the landmark radius.");
+            }
         }
     }
 }

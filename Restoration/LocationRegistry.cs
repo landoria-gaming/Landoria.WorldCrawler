@@ -13,10 +13,16 @@ namespace Landoria.WorldCrawler.Restoration
         // Registers the captured location at its original position in the target generation table.
         public static void Apply(CapturedObject record)
         {
-            if (record.LocationHash == 0) { return; }
+            if (record.LocationHash == 0)
+            {
+                return;
+            }
             var system = ZoneSystem.instance;
             var source = system.m_locations.SingleOrDefault(v => v.m_prefabName == record.LocationName);
-            if (source == null) { throw new InvalidOperationException("Missing source location: " + record.LocationName); }
+            if (source == null)
+            {
+                throw new InvalidOperationException("Missing source location: " + record.LocationName);
+            }
             var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
             var field = typeof(ZoneSystem).GetField("m_locationInstances", flags)
                 ?? throw new MissingFieldException("ZoneSystem.m_locationInstances");
@@ -35,7 +41,9 @@ namespace Landoria.WorldCrawler.Restoration
                 foreach (var cache in caches)
                 {
                     foreach (var entries in cache.Values)
-                    { ((IList)entries).Remove(previous); }
+                    {
+                        ((IList)entries).Remove(previous);
+                    }
                 }
                 registry.Remove(zone);
             }

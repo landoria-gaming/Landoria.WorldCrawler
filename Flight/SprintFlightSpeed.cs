@@ -14,10 +14,14 @@ namespace Landoria.WorldCrawler.Flight
         internal static float Read(Player player)
         {
             if (Factor == null || Factor.ReturnType != typeof(float))
-            { throw new MissingMethodException("Player.GetRunSpeedFactor() is unavailable."); }
+            {
+                throw new MissingMethodException("Player.GetRunSpeedFactor() is unavailable.");
+            }
             var speed = player.m_runSpeed * (float)Factor.Invoke(player, null);
             if (float.IsNaN(speed) || float.IsInfinity(speed) || speed < 1f || speed > 100f)
-            { throw new InvalidOperationException("The native sprint speed is outside safe flight limits."); }
+            {
+                throw new InvalidOperationException("The native sprint speed is outside safe flight limits.");
+            }
             return speed;
         }
     }

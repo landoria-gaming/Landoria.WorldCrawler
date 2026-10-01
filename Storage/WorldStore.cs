@@ -13,11 +13,29 @@ namespace Landoria.WorldCrawler.Storage
         private readonly WorldIdentity identity;
         private readonly FileStream directoryLock;
         private bool disposed;
-        public string DirectoryPath { get; private set; }
-        public WorldManifest Manifest { get; private set; }
-        public string RecoveryNotice { get; private set; }
-        public Action<int, int, byte[], string, int> PayloadValidator { get; set; }
-        private string ManifestPath { get { return Path.Combine(DirectoryPath, "manifest.json"); } }
+        public string DirectoryPath
+        {
+            get; private set;
+        }
+        public WorldManifest Manifest
+        {
+            get; private set;
+        }
+        public string RecoveryNotice
+        {
+            get; private set;
+        }
+        public Action<int, int, byte[], string, int> PayloadValidator
+        {
+            get; set;
+        }
+        private string ManifestPath
+        {
+            get
+            {
+                return Path.Combine(DirectoryPath, "manifest.json");
+            }
+        }
 
         // Holds the world lock for the lifetime of this store.
         private WorldStore(string directory, WorldIdentity world, FileStream worldLock)
@@ -42,7 +60,10 @@ namespace Landoria.WorldCrawler.Storage
             try
             {
                 store.LoadManifest();
-                if (reconcile) { store.Reconcile(); }
+                if (reconcile)
+                {
+                    store.Reconcile();
+                }
                 return store;
             }
             catch
@@ -50,35 +71,6 @@ namespace Landoria.WorldCrawler.Storage
                 store.Dispose();
                 throw;
             }
-        }
-
-        // Freezes the first map inventory and refuses to append flight-revealed pixels.
-        public bool InitializeInventory(InventoryResult inventory, string characterId, string characterName)
-        {
-            EnsureOpen();
-            if (Manifest.Selection != null)
-            {
-                throw new InvalidOperationException("This directory contains a landmark selection, not a frozen exploration inventory.");
-            }
-            if (Manifest.InventoryInitialized)
-            {
-                ValidateCharacter(characterId);
-                return false;
-            }
-            if (inventory == null || inventory.Zones == null || string.IsNullOrWhiteSpace(characterId))
-            {
-                throw new ArgumentException("An initial inventory and stable character identity are required.");
-            }
-            Manifest.CharacterId = characterId;
-            Manifest.CharacterName = characterName ?? string.Empty;
-            Manifest.PersonalPixels = inventory.PersonalPixels;
-            Manifest.SharedPixels = inventory.SharedPixels;
-            Manifest.CombinedPixels = inventory.CombinedPixels;
-            Manifest.Zones = inventory.Zones.Select(zone => new ZoneEntry
-                { X = zone.X, Z = zone.Z, Origin = zone.Origin }).OrderBy(zone => zone.Z).ThenBy(zone => zone.X).ToList();
-            Manifest.InventoryInitialized = true;
-            Save();
-            return true;
         }
 
         // Initializes or expands a landmark crawl while retaining completed selected coordinates.
@@ -92,7 +84,7 @@ namespace Landoria.WorldCrawler.Storage
             ValidateCharacter(characterId);
             if (Manifest.InventoryInitialized && Manifest.Selection == null)
             {
-                throw new InvalidOperationException("A frozen map export cannot be replaced by landmark selection; use a separate scope.");
+                throw new InvalidOperationException("Only landmark exports are supported; start a new export.");
             }
             var selection = LandmarkSelectionBuilder.Merge(Manifest.Selection, inventory, radius);
             var selected = LandmarkZoneInventory.Build(LandmarkSelectionBuilder.Inventory(selection), radius);
@@ -101,7 +93,6 @@ namespace Landoria.WorldCrawler.Storage
             Manifest.CharacterName = characterName ?? string.Empty;
             Manifest.Selection = selection;
             Manifest.Zones = zones;
-            Manifest.PersonalPixels = Manifest.SharedPixels = Manifest.CombinedPixels = 0;
             Manifest.InventoryInitialized = true;
             Save();
         }
@@ -136,10 +127,18 @@ namespace Landoria.WorldCrawler.Storage
                 throw new ArgumentException("A bounded payload, version, and valid object count are required.");
             }
             PayloadValidator?.Invoke(x, z, payload, captureVersion, objects);
-            var envelope = new ZoneEnvelope { World = identity.Copy(), X = x, Z = z,
-                CapturedUtc = DateTime.UtcNow.ToString("o"), CaptureVersion = captureVersion,
-                ObjectCount = objects, PayloadLength = payload.Length, Checksum = StoreValidation.Hash(payload),
-                PayloadBase64 = Convert.ToBase64String(payload) };
+            var envelope = new ZoneEnvelope
+            {
+                World = identity.Copy(),
+                X = x,
+                Z = z,
+                CapturedUtc = DateTime.UtcNow.ToString("o"),
+                CaptureVersion = captureVersion,
+                ObjectCount = objects,
+                PayloadLength = payload.Length,
+                Checksum = StoreValidation.Hash(payload),
+                PayloadBase64 = Convert.ToBase64String(payload)
+            };
             AtomicJson.Write(ZonePath(x, z), envelope, value => ValidateEnvelope(value, x, z));
             MarkCaptured(entry, envelope);
             Save();
@@ -209,7 +208,10 @@ namespace Landoria.WorldCrawler.Storage
                 Manifest = new WorldManifest { World = identity.Copy(), CreatedUtc = DateTime.UtcNow.ToString("o") };
                 return;
             }
-            try { Manifest = ReadManifest(ManifestPath); }
+            try
+            {
+                Manifest = ReadManifest(ManifestPath);
+            }
             catch (Exception error) when (IsInvalidFile(error) && File.Exists(ManifestPath + ".previous"))
             {
                 Manifest = ReadManifest(ManifestPath + ".previous");
@@ -232,7 +234,10 @@ namespace Landoria.WorldCrawler.Storage
         private ZoneEntry FindZone(int x, int z)
         {
             var entry = Manifest.Zones.SingleOrDefault(zone => zone.X == x && zone.Z == z);
-            if (entry == null) { throw new InvalidOperationException("This zone is outside the frozen exploration inventory."); }
+            if (entry == null)
+            {
+                throw new InvalidOperationException("This zone is outside the landmark inventory.");
+            }
             return entry;
         }
 
@@ -280,7 +285,10 @@ namespace Landoria.WorldCrawler.Storage
         // Prevents writes after the exclusive directory lock has been released.
         private void EnsureOpen()
         {
-            if (disposed) { throw new ObjectDisposedException(nameof(WorldStore)); }
+            if (disposed)
+            {
+                throw new ObjectDisposedException(nameof(WorldStore));
+            }
         }
     }
 }

@@ -7,8 +7,5 @@ namespace Landoria.WorldCrawler.Inventory
     public sealed class InventoryResult
     {
         public List<ZoneEntry> Zones { get; set; } = new List<ZoneEntry>();
-        public long PersonalPixels { get; set; }
-        public long SharedPixels { get; set; }
-        public long CombinedPixels { get; set; }
     }
 }

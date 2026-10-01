@@ -11,9 +11,20 @@ namespace Landoria.WorldCrawler.Restoration
         // Leaves ordinary proxies untouched and reports incompatible persisted layouts.
         private static void Postfix(LocationProxy __instance, bool __result)
         {
-            if (!__result) { return; }
-            try { LocationLayout.Replay(__instance); }
-            catch (Exception error) { Debug.LogWarning("World Crawler location layout skipped: " + error.Message); }
+            if (!__result)
+            {
+                return;
+            }
+            try
+            {
+                LocationLayout.Replay(__instance);
+            }
+            catch (Exception error)
+            {
+                var target = __instance.GetComponent<ZNetView>()?.GetZDO();
+                Debug.LogWarning("World Crawler location layout skipped: target=" + target?.m_uid +
+                    "; position=" + __instance.transform.position + "; " + error.Message);
+            }
         }
     }
 }

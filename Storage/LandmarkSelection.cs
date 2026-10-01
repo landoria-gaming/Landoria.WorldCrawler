@@ -9,7 +9,11 @@ namespace Landoria.WorldCrawler.Storage
     public sealed class LandmarkSelection
     {
         [DataMember(Order = 0)] public string Mode { get; set; } = "landmarks";
-        [DataMember(Order = 1)] public float Radius { get; set; }
+        [DataMember(Order = 1)]
+        public float Radius
+        {
+            get; set;
+        }
         [DataMember(Order = 2)] public List<LandmarkPoint> Points { get; set; } = new List<LandmarkPoint>();
         [DataMember(Order = 3)] public List<string> Warnings { get; set; } = new List<string>();
     }

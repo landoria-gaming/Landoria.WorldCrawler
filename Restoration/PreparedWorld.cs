@@ -26,9 +26,13 @@ namespace Landoria.WorldCrawler.Restoration
             if (FormatVersion != 1 || World == null || !World.Matches(world) || World.Name != world.Name ||
                 ExportFingerprint != fingerprint || !Guid.TryParseExact(Token, "N", out _) ||
                 string.IsNullOrWhiteSpace(SourceCharacter))
-            { throw new InvalidDataException("This local world was not prepared for this exact export."); }
+            {
+                throw new InvalidDataException("This local world was not prepared for this exact export.");
+            }
             if (SourceSeries != null && (SourceSeries.Length != 64 || InitialZones == null || InitialZones.Count == 0))
-            { throw new InvalidDataException("The prepared export series is incomplete."); }
+            {
+                throw new InvalidDataException("The prepared export series is incomplete.");
+            }
         }
 
         // Accepts additive captures for new targets while preserving exact binding for older markers.
@@ -36,10 +40,18 @@ namespace Landoria.WorldCrawler.Restoration
         {
             Validate(archive.Manifest.World, ExportFingerprint);
             if (SourceCharacter != archive.Manifest.CharacterId)
-            { throw new InvalidDataException("The export belongs to a different source character."); }
-            if (SourceSeries == null) { Validate(archive.Manifest.World, archive.Fingerprint); return; }
+            {
+                throw new InvalidDataException("The export belongs to a different source character.");
+            }
+            if (SourceSeries == null)
+            {
+                Validate(archive.Manifest.World, archive.Fingerprint);
+                return;
+            }
             if (SourceSeries != archive.SeriesIdentity)
-            { throw new InvalidDataException("Select the original export series for this prepared world."); }
+            {
+                throw new InvalidDataException("Select the original export series for this prepared world.");
+            }
             archive.RequireUnchanged(InitialZones);
         }
     }
