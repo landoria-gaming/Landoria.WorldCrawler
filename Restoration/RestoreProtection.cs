@@ -13,21 +13,23 @@ namespace Landoria.WorldCrawler.Restoration
             get; set;
         }
 
-        // Rejects any player or fauna component on the object or within its prefab hierarchy.
+        // Rejects an actor or its children without treating unrelated descendants as the parent object.
         public static bool Protected(GameObject gameObject)
         {
             if (gameObject == null)
             {
                 return true;
             }
-            foreach (var transform in gameObject.GetComponentsInChildren<Transform>(true))
+            var current = gameObject.transform;
+            while (current != null)
             {
-                if (CaptureExclusionPolicy.Classify(transform.gameObject) != null)
+                if (CaptureExclusionPolicy.Classify(current.gameObject) != null)
                 {
                     return true;
                 }
+                current = current.parent;
             }
-            return gameObject.GetComponentInParent<Character>() != null;
+            return false;
         }
 
         // Recognizes unfinished imported objects after a pause or a world reload.

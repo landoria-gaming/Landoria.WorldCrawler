@@ -219,6 +219,14 @@ namespace Landoria.WorldCrawler.Flight
                 current.player == character && Player.m_localPlayer == character && !character.IsDead();
         }
 
+        // Suppresses native repositioning only while this connected local body is under flight control.
+        internal static bool OwnsFlightMotion(Character character)
+        {
+            return IsControlled(character) && !current.NativeTransitActive &&
+                current.CanOwnTransitRecovery() && !current.player.IsTeleporting() &&
+                !current.player.IsAttached() && !current.player.InCutscene();
+        }
+
         // Clears only a stale actor or disconnected session, retaining protection after a same-session fault.
         public static void ReleaseStaleControl()
         {
@@ -255,7 +263,10 @@ namespace Landoria.WorldCrawler.Flight
             }
             if (!nativeTransit && Vector3.Distance(player.transform.position, expectedPosition) > 3f)
             {
-                throw new InvalidOperationException("The player was moved outside crawler control; flight stopped.");
+                throw new InvalidOperationException(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "The player was moved outside crawler control; flight stopped. Expected={0}; actual={1}; delta={2:F2}m.",
+                    expectedPosition.ToString("F2"), player.transform.position.ToString("F2"),
+                    Vector3.Distance(player.transform.position, expectedPosition)));
             }
             if (player.GetHealth() <= minimumHealth)
             {

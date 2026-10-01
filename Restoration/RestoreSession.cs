@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Landoria.WorldCrawler.Flight;
 using Landoria.WorldCrawler.Runtime;
 using Landoria.WorldCrawler.Storage;
+using UnityEngine;
 
 namespace Landoria.WorldCrawler.Restoration
 {
@@ -132,12 +133,17 @@ namespace Landoria.WorldCrawler.Restoration
             Journal.Save();
         }
 
-        // Holds an airborne recovery while disk and preflight work complete.
+        // Holds horizontal position and rises above terrain changed by an active restoration.
         public void Hold(float deltaTime)
         {
             if (Flight != null && Flight.Active)
             {
-                Flight.Tick(_player.transform.position, deltaTime);
+                var position = _player.transform.position;
+                if (RestoreProtection.Active)
+                {
+                    position.y = Mathf.Max(position.y, SurfaceHeight.Read(position) + CrawlerConstants.RestoreClearance);
+                }
+                Flight.Tick(position, deltaTime);
             }
         }
 

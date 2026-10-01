@@ -1,53 +1,40 @@
-# World Crawler
+# Valheim World Crawler
 
-Rebuild a server world locally, even without admin access or access to its save files.
+World Crawler lets you pull a world's data from a server and rebuild it locally. It starts with the world's seed and unique ID, then captures its buildings, terrain modifications, chests, and chest contents. You do not need to be a server admin or have access to the server's save files.
+
+> ⚠️
+> This process can take quite a while when the explored world is large. It may also be detected as cheating by the server, potentially resulting in a ban. Use it responsibly and get the server owner's permission first.
+
+## Why?
+
+Sometimes, a world is simply too good to lose:
+
+- A dedicated server admin disappears overnight or decides to move on from the project.
+- A public or community server is about to shut down or be wiped, and players want to **keep a local copy of their bases and builds**.
+- Players want to continue the adventure in Singleplayer, without having to rely on the server being online.
 
 ## How it works
 
-- Your character automatically flies between landmarks and records what the server sends.
-- Captures whole zones within **80 metres** of known portals, discovered places, and personal map pins.
-- Saves buildings, terrain changes, chest contents, signs, and displayed items when received.
-- Skips players, creatures, animals, death markers, shared pins, round pins, and undiscovered map locations.
+- The mod starts by scanning the areas your character has already discovered.
+- It does **not** export every piece of data from the entire world. It focuses on selected locations instead.
+- It captures the zones within **80 metres** of known portals and landmarks you have marked on the map.
+- Landmarks using the simple round icon are ignored.
+- Your character automatically flies between the selected locations and records the buildings, terrain changes, chest contents, signs, and displayed items sent by the server.
 - Client-only: no server installation needed. Get the server owner's permission first.
-- Install the DLL in your client's `BepInEx/plugins` folder.
-- This is a partial reconstruction, not a complete server backup. Unseen data and changed game assets may be missing.
 
-## Controls and versions
+## How to use
 
-| Key | Action | Valheim version |
-|---|---|---|
-| `F8` | Start, pause, or resume export | `0.221.12` and `1.0.x` |
-| `F9` | Select an export and prepare a local world from the main menu | `1.0.x` only |
-| `F10` | Start, pause, or resume restoration in the prepared local world | `1.0.x` only |
+### 1. Export the server world
 
-- Fixed controls and production defaults; no configuration needed.
-- Disable ValheimTomrer before use: it uses the same keys.
+Join the source world with your usual character and press `F8`. Your character automatically flies between the selected areas to capture and save the world data. Add a personal **Home** pin to include a missing revealed area. Press `F8` to pause or resume.
 
-## 1. Export
+### 2. Create the local world
 
-- Join the source world with your usual character, then press `F8`.
-- Let the mod move your character and wait for nearby data to load.
-- Open the map: green zones are saved; amber zones are still pending.
-- To include a missing area, add a personal **Home** pin on a revealed part of the map. Its 80-metre surroundings join the route, even during export.
-- Press `F8` again to pause and return to your starting point. Press it later to resume unfinished zones.
-- Files stay in `BepInEx/config/WorldCrawler/worlds`, in a folder identified by the world's UID and seed. Keep the whole folder.
+Return to the main menu and press `F9`. Select the export and confirm. The mod creates a local world with the same name, seed, and UID.
 
-## 2. Prepare the local world
+### 3. Restore the exported areas
 
-- Start Valheim `1.0.x`, stay at the main menu, and press `F9`.
-- Select your export, then confirm world preparation.
-- Creates a local world with the same name, seed, and UID, using the current save format.
-- Existing unrelated worlds are never overwritten. A partial export is enough to begin.
-
-## 3. Restore
-
-- Back up your character. The same world UID shares its map and saved positions.
-- Join the prepared world alone with a **different character** from the one used for export.
-- Press `F10`. The mod flies about 1 m above the terrain, stops while data arrives, restores each saved zone, and saves progress automatically.
-- Long empty trips use twice the character's sprint speed. Travel between zones does not use portals or coordinate jumps.
-- Press `F10` again to pause; press it later to resume without duplicating restored objects.
-- After restarting the game, `F10` finds the prepared world's export automatically if its folder is still available.
-- Review warnings in the BepInEx log and inspect the restored world after reloading before returning with your usual character.
+Back up your character, enter the new local world, and press `F10`. Your character automatically flies between the saved areas to restore the world data. Press `F10` to pause or resume without starting over.
 
 ## Screenshot
 
