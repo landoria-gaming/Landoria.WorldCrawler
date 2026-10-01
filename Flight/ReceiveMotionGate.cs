@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Landoria.WorldCrawler.Flight
 {
-    // Stops outbound F8 movement while nearby useful records are still arriving.
+    // Stops controlled travel while nearby useful records are still arriving.
     internal sealed class ReceiveMotionGate : IDisposable
     {
         private static ReceiveMotionGate _current;
@@ -19,7 +19,7 @@ namespace Landoria.WorldCrawler.Flight
         private readonly float _timeout;
         private string _error;
 
-        // Attaches only during export, leaving restoration and return travel unchanged.
+        // Attaches to one active export or restoration flight at a time.
         internal ReceiveMotionGate(Player player, float timeout)
         {
             if (_current != null)
@@ -96,7 +96,7 @@ namespace Landoria.WorldCrawler.Flight
             }
             if (now - _blockedSince >= _timeout)
             {
-                throw new TimeoutException("Nearby data kept arriving or the connection remained unhealthy; export paused.");
+                throw new TimeoutException("Nearby data kept arriving or the connection remained unhealthy; travel stopped.");
             }
             return true;
         }

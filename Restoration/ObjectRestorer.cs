@@ -15,6 +15,8 @@ namespace Landoria.WorldCrawler.Restoration
         private readonly string _fingerprint;
         private readonly RestoreState _state;
         private readonly Dictionary<string, RestoredObject> _map;
+        private readonly RestoreIdentityIndex _identities;
+        private readonly Action<string> _warning;
         private readonly List<ZDO> _zone = new List<ZDO>();
         private readonly HashSet<ZDOID> _claimed = new HashSet<ZDOID>();
         private readonly CaptureApi _api = new CaptureApi();
@@ -22,15 +24,23 @@ namespace Landoria.WorldCrawler.Restoration
             BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(ZDO) }, null);
 
         // Shares a durable mapping with the journal while keeping lookups efficient.
-        public ObjectRestorer(string fingerprint, RestoreState state)
+        public ObjectRestorer(string fingerprint, RestoreState state, Action<string> warning)
         {
             _fingerprint = fingerprint;
             _state = state;
             _map = state.Objects.ToDictionary(v => v.Source, StringComparer.Ordinal);
+            _identities = new RestoreIdentityIndex(fingerprint);
+            _warning = warning;
             if (RemoveView == null)
             {
                 throw new MissingMethodException("ZNetScene.OnZDODestroyed(ZDO)");
             }
+        }
+
+        // Finishes the durable tag index before checking progress saved in a previous session.
+        public bool IndexIdentities()
+        {
+            return _identities.Step(256);
         }
 
         // Preflights prefab availability and independent actor protection before mutations begin.
@@ -60,6 +70,8 @@ namespace Landoria.WorldCrawler.Restoration
         public void BeginZone(int x, int z)
         {
             _api.FindObjects(new Vector3(x * 64f, 0f, z * 64f), _zone);
+            var seen = new HashSet<ZDOID>();
+            _zone.RemoveAll(target => target == null || !seen.Add(target.m_uid));
             _claimed.Clear();
         }
 
@@ -107,13 +119,42 @@ namespace Landoria.WorldCrawler.Restoration
         {
             Validate(source);
             var target = Resolve(source) ?? Match(source);
-            if (target == null)
+            var created = target == null;
+            target = target ?? CreateTarget(source);
+            try
             {
-                target = ZDOMan.instance.CreateNewZDO(Vector(source.Position), source.PrefabHash);
-                _zone.Add(target);
+                EnsureSafe(target, source.PrefabHash);
+                ApplyWithRollback(target, source, version);
+                _claimed.Add(target.m_uid);
+                return target;
             }
-            EnsureSafe(target, source.PrefabHash);
-            _claimed.Add(target.m_uid);
+            catch (Exception error)
+            {
+                if (created)
+                {
+                    _zone.Remove(target);
+                    target.SetOwner(ZDOMan.GetSessionID());
+                    target.Persistent = false;
+                    ZDOMan.instance.DestroyZDO(target);
+                }
+                throw new InvalidOperationException("Could not restore " + source.PrefabName +
+                    "; source=" + ExportArchive.Key(source) + "; target=" + target.m_uid +
+                    "; newlyCreated=" + created + ". " + error.Message, error);
+            }
+        }
+
+        // Initializes the prefab explicitly, just as ZNetView does after allocating a native ZDO.
+        private ZDO CreateTarget(CapturedObject source)
+        {
+            var target = ZDOMan.instance.CreateNewZDO(Vector(source.Position), source.PrefabHash);
+            target.SetPrefab(source.PrefabHash);
+            _zone.Add(target);
+            return target;
+        }
+
+        // Rolls back native state when applying or converting the captured data fails.
+        private void ApplyWithRollback(ZDO target, CapturedObject source, string version)
+        {
             var previous = new ZPackage();
             target.Serialize(previous);
             var position = target.GetPosition();
@@ -122,7 +163,6 @@ namespace Landoria.WorldCrawler.Restoration
             try
             {
                 Apply(target, source, version);
-                return target;
             }
             catch
             {
@@ -140,7 +180,12 @@ namespace Landoria.WorldCrawler.Restoration
         {
             Refresh(target);
             ZDOExtraData.Release(target, target.m_uid);
-            target.Deserialize(new ZPackage(source.RawDataBase64));
+            var data = new ZPackage(source.RawDataBase64);
+            target.Deserialize(data);
+            if (target.GetPrefab() != source.PrefabHash || !target.Persistent || data.GetPos() != data.Size())
+            {
+                throw new InvalidOperationException("The captured ZDO was not fully decoded with its expected persistent prefab.");
+            }
             target.SetOwner(ZDOMan.GetSessionID());
             LegacyMigration.Apply(target, source, version);
             target.SetConnection(ZDOExtraData.ConnectionType.None, ZDOID.None);
@@ -159,13 +204,28 @@ namespace Landoria.WorldCrawler.Restoration
         // Resolves only mappings whose saved destination still has the correct durable tag.
         public ZDO Resolve(CapturedObject source)
         {
-            if (!_map.TryGetValue(ExportArchive.Key(source), out var mapped))
+            var target = ResolveKey(ExportArchive.Key(source));
+            if (target != null && target.GetPrefab() == source.PrefabHash)
             {
-                return null;
+                Record(source, target);
+                return target;
             }
-            var target = ZDOMan.instance.GetZDO(new ZDOID(long.Parse(mapped.TargetUser, CultureInfo.InvariantCulture), mapped.TargetId));
-            return target != null && target.GetPrefab() == source.PrefabHash && target.GetString(IdentityTag, "") == Tag(source)
-                ? target : null;
+            return null;
+        }
+
+        // Treats session IDs as a cache and falls back to the immutable source tag after reload.
+        private ZDO ResolveKey(string key)
+        {
+            var tag = _fingerprint + ":" + key;
+            if (_map.TryGetValue(key, out var mapped))
+            {
+                var target = ZDOMan.instance.GetZDO(new ZDOID(long.Parse(mapped.TargetUser, CultureInfo.InvariantCulture), mapped.TargetId));
+                if (target != null && target.GetString(IdentityTag, "") == tag)
+                {
+                    return target;
+                }
+            }
+            return _identities.Resolve(tag);
         }
 
         // Restores connections only to other proven imported objects, never to source IDs by accident.
@@ -181,7 +241,7 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return false;
             }
-            var endpoint = ZDOMan.instance.GetZDO(new ZDOID(long.Parse(mapped.TargetUser, CultureInfo.InvariantCulture), mapped.TargetId));
+            var endpoint = ResolveKey(key);
             if (endpoint == null || endpoint.GetString(IdentityTag, "") != _fingerprint + ":" + key)
             {
                 return false;
@@ -192,7 +252,7 @@ namespace Landoria.WorldCrawler.Restoration
             return true;
         }
 
-        // Refuses ambiguous matches rather than updating an arbitrary nearby structure.
+        // Reuses proven equal generated copies while rejecting genuinely ambiguous structures.
         private ZDO Match(CapturedObject source)
         {
             var tagged = _zone.Where(z => z.GetString(IdentityTag, "") == Tag(source)).ToList();
@@ -206,24 +266,28 @@ namespace Landoria.WorldCrawler.Restoration
             }
             var position = Vector(source.Position);
             var rotation = Rotation(source.Rotation);
+            var savedRotation = GeneratedObjectMatch.SavedRotation(rotation);
             var candidates = _zone.Where(z => !_claimed.Contains(z.m_uid) && z.GetPrefab() == source.PrefabHash &&
                 string.IsNullOrEmpty(z.GetString(IdentityTag, "")) &&
-                Vector3.Distance(z.GetPosition(), position) < 0.02f && Quaternion.Angle(z.GetRotation(), rotation) < 0.2f).ToList();
-            if (candidates.Count > 1)
-            {
-                throw new InvalidOperationException("Ambiguous target match for " + source.PrefabName);
-            }
-            return candidates.FirstOrDefault();
+                Vector3.Distance(z.GetPosition(), position) < 0.02f &&
+                (Quaternion.Angle(z.GetRotation(), rotation) < 0.2f ||
+                Quaternion.Angle(z.GetRotation(), savedRotation) < 0.2f)).ToList();
+            return GeneratedObjectMatch.Choose(source, candidates, _warning);
         }
 
         // Rechecks the real target before every write or view refresh.
         private static void EnsureSafe(ZDO target, int prefab)
         {
             var instance = ZNetScene.instance.FindInstance(target);
-            if (target.GetPrefab() != prefab || RestoreProtection.Protected(ZNetScene.instance.GetPrefab(prefab)) ||
-                instance != null && RestoreProtection.Protected(instance.gameObject))
+            var prefabObject = ZNetScene.instance.GetPrefab(prefab);
+            var protectedPrefab = RestoreProtection.Protected(prefabObject);
+            var protectedInstance = instance != null && RestoreProtection.Protected(instance.gameObject);
+            if (target.GetPrefab() != prefab || protectedPrefab || protectedInstance)
             {
-                throw new InvalidOperationException("Protected or changed target object; restoration stopped.");
+                var name = prefabObject == null ? prefab.ToString() : prefabObject.name;
+                throw new InvalidOperationException("Protected or changed target object; prefab=" + name +
+                    "; target=" + target.m_uid + "; actualPrefab=" + target.GetPrefab() +
+                    "; protectedPrefab=" + protectedPrefab + "; protectedInstance=" + protectedInstance + ".");
             }
         }
 

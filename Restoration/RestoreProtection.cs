@@ -30,6 +30,13 @@ namespace Landoria.WorldCrawler.Restoration
             return gameObject.GetComponentInParent<Character>() != null;
         }
 
+        // Recognizes unfinished imported objects after a pause or a world reload.
+        internal static bool Pending(ZNetView view)
+        {
+            var data = view == null ? null : view.GetZDO();
+            return data != null && data.GetBool("WorldCrawler.pending", false);
+        }
+
         // Retains a zone's supports while neighboring exported pieces are still being restored.
         public static void Hold(int x, int z)
         {

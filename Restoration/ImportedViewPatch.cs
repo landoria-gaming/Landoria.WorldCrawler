@@ -31,7 +31,8 @@ namespace Landoria.WorldCrawler.Restoration
             }
             foreach (var body in __instance.GetComponentsInChildren<Rigidbody>(true))
             {
-                body.isKinematic = true;
+                body.constraints = RigidbodyConstraints.FreezeAll;
+                body.useGravity = false;
             }
         }
     }

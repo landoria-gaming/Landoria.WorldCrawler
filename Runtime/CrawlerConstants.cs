@@ -20,6 +20,8 @@ namespace Landoria.WorldCrawler.Runtime
         public const float CruiseThreshold = 128f;
         public const bool AllowCoordinateJumps = true;
         public const float CoordinateJumpThreshold = 500f;
+        public const float RestoreClearance = 1f;
+        public const float RestoreFastTravelDistance = 128f;
         public const float ExportedZoneOpacity = 0.2f;
         public const float RemainingZoneOpacity = 0.3f;
         public static string ExportRoot => Path.Combine(Paths.ConfigPath, "WorldCrawler", "worlds");

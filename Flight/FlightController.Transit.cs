@@ -16,11 +16,10 @@ namespace Landoria.WorldCrawler.Flight
                 throw new InvalidOperationException("Reach the loaded portal before requesting native passage.");
             }
             return BeginNativeTransit(expectedExit, () =>
-{
-    portal.Teleport(player);
-    return player.IsTeleporting();
-}
-);
+            {
+                portal.Teleport(player);
+                return player.IsTeleporting();
+            });
         }
 
         // Uses the native loading transition for an explicitly authorized, known coordinate destination.
@@ -53,7 +52,7 @@ namespace Landoria.WorldCrawler.Flight
             return true;
         }
 
-        // Waits for native completion and reacquires motion only at the expected endpoint or source.
+        // Waits through native movement, then reacquires control only at a verified endpoint.
         public bool TickNativeTransit()
         {
             if (!NativeTransitActive)
@@ -62,14 +61,6 @@ namespace Landoria.WorldCrawler.Flight
             }
             ValidateActive(true);
             achievements.Validate();
-            var position = player.transform.position;
-            var atSource = Vector3.Distance(position, transitFrom) <= 4f;
-            var atExit = Vector2.Distance(new Vector2(position.x, position.z),
-                new Vector2(transitExit.x, transitExit.z)) <= 8f && Mathf.Abs(position.y - transitExit.y) <= 1000f;
-            if (!atSource && !atExit)
-            {
-                throw new InvalidOperationException("Native travel moved outside its verified endpoints.");
-            }
             if (player.IsTeleporting())
             {
                 if (Time.time - transitStarted > 120f)
@@ -77,6 +68,14 @@ namespace Landoria.WorldCrawler.Flight
                     throw new TimeoutException("The native transition did not finish.");
                 }
                 return false;
+            }
+            var position = player.transform.position;
+            var atSource = Vector3.Distance(position, transitFrom) <= 4f;
+            var atExit = Vector2.Distance(new Vector2(position.x, position.z),
+                new Vector2(transitExit.x, transitExit.z)) <= 8f && Mathf.Abs(position.y - transitExit.y) <= 1000f;
+            if (!atSource && !atExit)
+            {
+                throw new InvalidOperationException("Native travel finished outside its verified endpoints.");
             }
             NativeTransitSucceeded = atExit;
             restoreOriginalMotion = false;

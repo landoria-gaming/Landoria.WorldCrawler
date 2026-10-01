@@ -43,10 +43,15 @@ Rebuild a server world locally, even without admin access or access to its save 
 
 - Back up your character. The same world UID shares its map and saved positions.
 - Join the prepared world alone with a **different character** from the one used for export.
-- Press `F10`. The mod visits saved zones, restores them, and saves progress automatically.
+- Press `F10`. The mod flies about 1 m above the terrain, stops while data arrives, restores each saved zone, and saves progress automatically.
+- Long empty trips use twice the character's sprint speed. Travel between zones does not use portals or coordinate jumps.
 - Press `F10` again to pause; press it later to resume without duplicating restored objects.
-- After restarting the game, select the export again with `F9` before resuming restoration.
+- After restarting the game, `F10` finds the prepared world's export automatically if its folder is still available.
 - Review warnings in the BepInEx log and inspect the restored world after reloading before returning with your usual character.
+
+## Screenshot
+
+<img src="./assets/world-crawler-map.png" alt="World Crawler exporting landmark zones on the Valheim map" width="500">
 
 ## Contact
 

@@ -23,6 +23,7 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 ConvertItem(target, i + "_item");
             }
+            LegacyItemData.Apply(target);
         }
 
         // Converts a display's prefab name to the current game's stable-hash representation.

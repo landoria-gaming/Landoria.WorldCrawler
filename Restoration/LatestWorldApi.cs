@@ -10,6 +10,10 @@ namespace Landoria.WorldCrawler.Restoration
     // Isolates new-format save APIs so the same assembly still loads in the old game.
     internal static class LatestWorldApi
     {
+        // Resolves the renamed enum value at runtime because its numeric value changed in Valheim 1.0.
+        public static FileHelpers.FileSource LocalSource =>
+            (FileHelpers.FileSource)Enum.Parse(typeof(FileHelpers.FileSource), "Local");
+
         // Refuses all creation and restoration behavior on the legacy runtime.
         public static void RequireCurrent()
         {
@@ -37,14 +41,14 @@ namespace Landoria.WorldCrawler.Restoration
         public static string SaveRoot()
         {
             return (string)Call(typeof(SaveSystem), null, "GetWorldsSaveRootPath",
-                new[] { typeof(FileHelpers.FileSource) }, FileHelpers.FileSource.Local);
+                new[] { typeof(FileHelpers.FileSource) }, LocalSource);
         }
 
         // Resolves the chunked save folder of the selected world.
         public static string DirectoryFor(World world)
         {
             return Path.GetFullPath((string)Call(typeof(World), world, "GetSaveDirectory",
-                new[] { typeof(FileHelpers.FileSource) }, FileHelpers.FileSource.Local));
+                new[] { typeof(FileHelpers.FileSource) }, LocalSource));
         }
 
         // Uses the current engine's metadata writer rather than constructing an old FWL file.
@@ -52,7 +56,7 @@ namespace Landoria.WorldCrawler.Restoration
         {
             Call(typeof(SaveSystem), null, "SetSaveNumber", new[] { typeof(uint) }, 0u);
             Call(typeof(World), world, "SaveWorldFWLData", new[] { typeof(DateTime) }, DateTime.Now);
-            if (world.m_fileSource != FileHelpers.FileSource.Local)
+            if (world.m_fileSource != LocalSource)
             {
                 throw new InvalidOperationException("The engine changed the requested local save destination.");
             }

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using BepInEx.Logging;
 using Landoria.WorldCrawler.Capture;
+using Landoria.WorldCrawler.Flight;
 using Landoria.WorldCrawler.Runtime;
 using Landoria.WorldCrawler.Storage;
 using UnityEngine;
@@ -66,6 +67,8 @@ namespace Landoria.WorldCrawler.Restoration
             _navigation = new TravelNavigator(_session.Flight, Player.m_localPlayer, CrawlerConstants.Clearance,
                 CrawlerConstants.PreferPortals, CrawlerConstants.CruiseSpeed, CrawlerConstants.CruiseThreshold,
                 CrawlerConstants.AllowCoordinateJumps, CrawlerConstants.CoordinateJumpThreshold);
+            _restoreNavigation = new RestoreFlightNavigator(_session.Flight, Player.m_localPlayer);
+            _motionGate = new ReceiveMotionGate(Player.m_localPlayer, CrawlerConstants.ZoneTimeout);
             RestoreProtection.Active = true;
             AddWarning("Client observations cannot prove server absence. Flagged natural-resource cleanup requires review.");
             AddWarning("Non-network zone-root scenery and changed location assets require separate review.");
@@ -112,7 +115,12 @@ namespace Landoria.WorldCrawler.Restoration
                 ReturnHome();
                 return;
             }
-            if (!_navigation.Travel(_zone.X * 64f, _zone.Z * 64f, Time.unscaledDeltaTime))
+            if (HoldForReception())
+            {
+                _session.Hold(Time.unscaledDeltaTime);
+                return;
+            }
+            if (!_restoreNavigation.Travel(_zone.X * 64f, _zone.Z * 64f, Time.unscaledDeltaTime))
             {
                 return;
             }
@@ -134,6 +142,19 @@ namespace Landoria.WorldCrawler.Restoration
             var zone = _zone;
             _read = Task.Run(() => new ZoneImportData { Snapshot = archive.ReadZone(zone), Records = archive.ZoneObjects(zone.X, zone.Z) });
             _phase = RestorePhase.Reading;
+        }
+
+        // Holds low flight while nearby world data arrives and resumes after two quiet seconds.
+        private bool HoldForReception()
+        {
+            var hold = _motionGate.Hold();
+            if (hold != _receiveHold)
+            {
+                _receiveHold = hold;
+                _log.LogInfo(hold ? "Restoration flight paused: receiving nearby world data."
+                    : "Restoration flight resumed: nearby world data is quiet.");
+            }
+            return hold;
         }
 
         // Hands validated files to a bounded main-thread restorer.
@@ -179,7 +200,8 @@ namespace Landoria.WorldCrawler.Restoration
                     QueueSave(false, false);
                     return;
                 }
-                if (!_objects.Connect(_scan.Current) && _session.Journal.State.Completed.Count + 1 >= _session.Archive.Manifest.Zones.Count)
+                if (RestoreRecordPolicy.Include(_scan.Current) && !_objects.Connect(_scan.Current) &&
+                    _session.Journal.State.Completed.Count + 1 >= _session.Archive.Manifest.Zones.Count)
                 {
                     AddWarning(RestoreWarnings.Describe(_scan.Current) + "; unresolved connection to source=" +
                     _scan.Current.ConnectionTargetUser + ":" + _scan.Current.ConnectionTargetId + "; link left unresolved.");
@@ -224,6 +246,10 @@ namespace Landoria.WorldCrawler.Restoration
                     _scan = null;
                     QueueSave(false, true);
                     return;
+                }
+                if (!RestoreRecordPolicy.Include(_scan.Current))
+                {
+                    continue;
                 }
                 var target = _objects.Resolve(_scan.Current);
                 if (target == null)

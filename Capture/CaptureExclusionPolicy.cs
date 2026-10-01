@@ -8,6 +8,10 @@ namespace Landoria.WorldCrawler.Capture
         // Identifies players, every Character-derived creature, fish, and non-Character flying birds.
         internal static string Classify(GameObject instance)
         {
+            if (instance.name == "_ZoneCtrl")
+            {
+                return "zone-control";
+            }
             if (instance.GetComponent<Player>() != null)
             {
                 return "player";

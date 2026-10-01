@@ -23,7 +23,7 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 throw new InvalidOperationException("An unreadable world prevents reliable UID collision checks.");
             }
-            var existing = worlds.Where(w => w.m_uid == identity.Uid ||
+            var existing = worlds.Where(w => w.m_uid == identity.Uid || w.m_fileSource == LatestWorldApi.LocalSource &&
                 string.Equals(w.m_name, identity.Name, StringComparison.OrdinalIgnoreCase)).ToList();
             if (existing.Count == 1)
             {
@@ -45,7 +45,7 @@ namespace Landoria.WorldCrawler.Restoration
                 m_uid = identity.Uid,
                 m_seed = identity.Seed,
                 m_worldGenVersion = identity.GenerationVersion,
-                m_fileSource = FileHelpers.FileSource.Local,
+                m_fileSource = LatestWorldApi.LocalSource,
                 m_needsDB = false
             };
             var directory = LatestWorldApi.DirectoryFor(world);
@@ -77,7 +77,7 @@ namespace Landoria.WorldCrawler.Restoration
         private static string ReusePrepared(World world, ExportArchive archive)
         {
             var expected = archive.Manifest.World;
-            if (world.m_fileSource != FileHelpers.FileSource.Local || world.m_name != expected.Name ||
+            if (world.m_fileSource != LatestWorldApi.LocalSource || world.m_name != expected.Name ||
                 world.m_uid != expected.Uid || world.m_seed != expected.Seed || world.m_seedName != expected.SeedText ||
                 world.m_worldGenVersion != expected.GenerationVersion)
             {

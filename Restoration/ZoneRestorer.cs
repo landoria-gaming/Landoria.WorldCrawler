@@ -33,15 +33,19 @@ namespace Landoria.WorldCrawler.Restoration
             ZoneEntry zone, Action<string> warning)
         {
             _objects = objects;
-            _records = records;
+            _warning = warning;
+            _records = records.Where(RestoreRecordPolicy.Include).ToList();
+            if (_records.Count != records.Count)
+            {
+                _warning("Ignored the engine-owned zone controller; Valheim keeps its generated destination controller.");
+            }
             _snapshot = snapshot;
             _version = zone.CaptureVersion;
-            _warning = warning;
             _center = new Vector3(zone.X * 64f, 0f, zone.Z * 64f);
             _started = Time.unscaledTime;
             _objects.BeginZone(zone.X, zone.Z);
             RestoreProtection.Hold(zone.X, zone.Z);
-            foreach (var record in records)
+            foreach (var record in _records)
             {
                 ObjectRestorer.Validate(record);
             }
@@ -120,15 +124,16 @@ namespace Landoria.WorldCrawler.Restoration
         private bool Verify(CapturedObject source)
         {
             var target = _objects.Resolve(source);
-            if (target == null || Vector3.Distance(target.GetPosition(), ObjectRestorer.Vector(source.Position)) > 0.1f)
+            if (target == null)
             {
-                throw new InvalidOperationException("An imported object moved or disappeared during validation: " + source.PrefabName);
+                throw new InvalidOperationException("Imported identity is missing during validation; " + RestoreWarnings.Describe(source));
             }
             var instance = ZNetScene.instance.FindInstance(target);
             if (instance == null)
             {
                 return false;
             }
+            VerifyPosition(source, target);
             if (source.LocalScale != null)
             {
                 instance.SetLocalScale(ObjectRestorer.Vector(source.LocalScale));
@@ -149,6 +154,29 @@ namespace Landoria.WorldCrawler.Restoration
                 _layouts.Add(ExportArchive.Key(source));
             }
             return true;
+        }
+
+        // Classifies native prefab behavior before distinguishing settled drops from misplaced structures.
+        private void VerifyPosition(CapturedObject source, ZDO target)
+        {
+            var distance = Vector3.Distance(target.GetPosition(), ObjectRestorer.Vector(source.Position));
+            var prefab = ZNetScene.instance.GetPrefab(source.PrefabHash);
+            var itemDrop = prefab.GetComponent<ItemDrop>() != null;
+            var sync = prefab.GetComponent<ZSyncTransform>();
+            var placedItem = itemDrop && target.GetBool("piece", false);
+            var movable = RestorePositionPolicy.IsMovable(itemDrop, placedItem, sync != null && sync.m_syncPosition);
+            if (!RestorePositionPolicy.Accepts(distance, movable))
+            {
+                throw new InvalidOperationException("Imported position is invalid; " + RestoreWarnings.Describe(source)
+                    + "; displacement=" + distance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+                    + "m; movable=" + movable + "; itemDrop=" + itemDrop + "; placedItem=" + placedItem + ".");
+            }
+            if (distance > RestorePositionPolicy.FixedTolerance)
+            {
+                _warning(RestoreWarnings.Describe(source) + "; dynamic object settled "
+                    + distance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+                    + "m from its captured position; identity is intact.");
+            }
         }
     }
 }

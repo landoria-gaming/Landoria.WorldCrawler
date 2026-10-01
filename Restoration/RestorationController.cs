@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using BepInEx.Logging;
 using Landoria.WorldCrawler.Capture;
+using Landoria.WorldCrawler.Flight;
 using Landoria.WorldCrawler.Runtime;
 using Landoria.WorldCrawler.Storage;
 using UnityEngine;
@@ -21,6 +22,9 @@ namespace Landoria.WorldCrawler.Restoration
         private ObjectRestorer _objects;
         private RestoreWarnings _warnings;
         private TravelNavigator _navigation;
+        private RestoreFlightNavigator _restoreNavigation;
+        private ReceiveMotionGate _motionGate;
+        private bool _receiveHold;
         private IEnumerator<CapturedObject> _scan;
         private Task<string> _backup;
         private Task<ZoneImportData> _read;
@@ -180,7 +184,7 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 AddWarning($"Partial export: restoring {_session.Archive.Manifest.Zones.Count}/{_session.Archive.PlannedZoneCount} zones; uncaptured zones will be skipped.");
             }
-            _objects = new ObjectRestorer(_session.Journal.State.Fingerprint, _session.Journal.State);
+            _objects = new ObjectRestorer(_session.Journal.State.Fingerprint, _session.Journal.State, AddWarning);
             _scan = _session.Archive.Records.GetEnumerator();
             _phase = RestorePhase.Preflight;
         }
@@ -188,16 +192,26 @@ namespace Landoria.WorldCrawler.Restoration
         // Rejects missing assets and repairs stale progress after a rolled-back native world save.
         private void Preflight()
         {
+            if (!_objects.IndexIdentities())
+            {
+                return;
+            }
             for (var i = 0; i < 40; i++)
             {
                 if (!_scan.MoveNext())
                 {
                     _scan.Dispose();
                     _scan = null;
+                    _log.LogInfo("Restoration preflight complete: " + _session.Journal.State.Completed.Count
+                        + " saved zones retained; " + _session.Journal.State.Objects.Count + " source mappings checked.");
                     QueueSave(true, false);
                     return;
                 }
                 var record = _scan.Current;
+                if (!RestoreRecordPolicy.Include(record))
+                {
+                    continue;
+                }
                 ObjectRestorer.Validate(record);
                 if (_objects.Resolve(record) == null && _session.Journal.State.Completed.Remove(ZoneKey(record.ZoneX, record.ZoneZ)))
                 {
@@ -252,6 +266,8 @@ namespace Landoria.WorldCrawler.Restoration
         private void Close()
         {
             RestoreProtection.Clear();
+            _motionGate?.Dispose();
+            _motionGate = null;
             _scan?.Dispose();
             _scan = null;
             var session = _session;

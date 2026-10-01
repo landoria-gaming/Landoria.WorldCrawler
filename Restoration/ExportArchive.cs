@@ -56,9 +56,7 @@ namespace Landoria.WorldCrawler.Restoration
                 {
                     throw new InvalidDataException("No saved zones are available. Export at least one zone with F8 first.");
                 }
-                SeriesIdentity = StoreValidation.Hash(Encoding.UTF8.GetBytes("export-series-v1\n" +
-                    StoreValidation.DirectoryName(Manifest.World) + "\n" + Manifest.CreatedUtc + "\n" +
-                    Manifest.CharacterId + "\n" + Path.GetFileName(DirectoryPath)));
+                SeriesIdentity = ExportSeries.Identity(Manifest, DirectoryPath);
                 var signature = new StringBuilder();
                 foreach (var zone in Manifest.Zones.OrderBy(z => z.Z).ThenBy(z => z.X))
                 {

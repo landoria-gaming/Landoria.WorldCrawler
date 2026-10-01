@@ -40,16 +40,20 @@ namespace Landoria.WorldCrawler.Restoration
         public RestoreSession(RestoreSelection restoration)
         {
             LatestWorldApi.RequireCurrent();
+            LegacyItemData.Validate();
+            GeneratedObjectMatch.Validate();
             _player = Player.m_localPlayer;
             World = GameContext.Identity();
             Check();
-            if (string.IsNullOrWhiteSpace(restoration.SourceDirectory))
-            {
-                throw new InvalidOperationException("Select the source export in the world preparation menu first.");
-            }
             WorldDirectory = LatestWorldApi.DirectoryFor(ZNet.World);
             _marker = AtomicJson.Read<PreparedWorld>(Path.Combine(WorldDirectory, PreparedWorld.FileName));
             _marker.Validate(World, _marker.ExportFingerprint);
+            var source = restoration.SourceDirectory;
+            if (string.IsNullOrWhiteSpace(source))
+            {
+                source = ExportSourceResolver.Resolve(_marker);
+                restoration.SourceDirectory = source;
+            }
             var character = Game.instance.GetPlayerProfile().GetPlayerID().ToString(CultureInfo.InvariantCulture);
             Journal = new RestoreJournal(CrawlerConstants.ExportRoot, _marker, character);
             try
@@ -58,7 +62,6 @@ namespace Landoria.WorldCrawler.Restoration
                 {
                     StartFlight(CrawlerConstants.Speed);
                 }
-                var source = restoration.SourceDirectory;
                 _loading = Task.Run(() => new ExportArchive(source));
             }
             catch
@@ -80,7 +83,7 @@ namespace Landoria.WorldCrawler.Restoration
         {
             if (!GameContext.Ready(Flight?.NativeTransitActive == true) || !GameContext.SameSession(World, _player) ||
                 !ZNet.instance.IsServer() || ZNet.instance.IsDedicated() || ZNet.instance.GetPeers().Count != 0 ||
-                ZNet.World.m_fileSource != FileHelpers.FileSource.Local)
+                ZNet.World.m_fileSource != LatestWorldApi.LocalSource)
             {
                 throw new InvalidOperationException("Restoration requires the same local world, alone, with a living test character.");
             }
