@@ -51,7 +51,7 @@ Rebuild a server world locally, even without admin access or access to its save 
 
 ## Screenshot
 
-<img src="./assets/world-crawler-map.png" alt="World Crawler exporting landmark zones on the Valheim map" width="500">
+<img src="https://raw.githubusercontent.com/landoria-gaming/Landoria.WorldCrawler/refs/heads/main/assets/world-crawler-map.png" alt="World Crawler exporting landmark zones on the Valheim map" width="500">
 
 ## Contact
 
