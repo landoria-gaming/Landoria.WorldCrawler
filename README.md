@@ -1,4 +1,4 @@
-# Valheim World Crawler
+# Valheim World Crawler ![Experimental](https://img.shields.io/badge/status-experimental-orange)
 
 World Crawler lets you pull a world's data from a server and rebuild it locally. It starts with the world's seed and unique ID, then captures its buildings, terrain modifications, chests, and chest contents. You do not need to be a server admin or have access to the server's save files.
 
