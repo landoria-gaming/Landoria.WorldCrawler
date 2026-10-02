@@ -21,9 +21,7 @@ namespace Landoria.WorldCrawler.Restoration
         private RestoreWarnings _warnings;
         private readonly NearZoneScope _scope = new NearZoneScope();
         private readonly HashSet<string> _visited = new HashSet<string>();
-        private readonly HashSet<string> _validated = new HashSet<string>();
         private readonly HashSet<string> _applied = new HashSet<string>();
-        private readonly HashSet<string> _unresolved = new HashSet<string>();
         private IEnumerator<CapturedObject> _scan;
         private Task<string> _backup;
         private Task<ZoneImportData> _read;
@@ -31,7 +29,7 @@ namespace Landoria.WorldCrawler.Restoration
         private ZoneEntry _zone;
         private ZoneRestorer _writer;
         private uint _saveBefore;
-        private bool _pause, _initialSave, _finalSave, _dirty, _finalized;
+        private bool _pause, _initialSave, _finalSave, _dirty, _finalized, _teleportTransit;
         private float _waitingSince, _lastSave, _retrySaveAt;
         private string _lastSaveUtc = "none";
         private int _restoredObjects;
@@ -95,11 +93,9 @@ namespace Landoria.WorldCrawler.Restoration
             _closing = null;
             _zone = null;
             _writer = null;
-            _pause = _dirty = _finalSave = _finalized = false;
+            _pause = _dirty = _finalSave = _finalized = _teleportTransit = false;
             _visited.Clear();
-            _validated.Clear();
             _applied.Clear();
-            _unresolved.Clear();
             _retrySaveAt = 0f;
             _restoredObjects = 0;
             _cleanupIndex = 0;
@@ -282,9 +278,18 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return;
             }
+            var changed = _dirty;
+            var notStarted = _session == null || Preparing;
             _phase = RestorePhase.Stopped;
             Close();
-            Say("Restoration interrupted. Unsaved work may need replay: " + error.Message);
+            var message = changed ? "Restoration interrupted. Unsaved work may need replay." :
+                "Restoration could not continue. No restoration changes are pending.";
+            if (notStarted && !changed)
+            {
+                message = "Restoration not started. No world data was changed.";
+            }
+            Say(message + " " + error.Message);
+            NativeConfirmation.Report(message + "\n\n" + error.Message);
         }
 
         // Retains the live protected session and pending changes while a failed native save is retried.

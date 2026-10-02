@@ -59,8 +59,6 @@ namespace Landoria.WorldCrawler.Restoration
             _read = null;
             var data = read.GetAwaiter().GetResult();
             var key = ZoneKey(_zone.X, _zone.Z);
-            _applied.Remove(key);
-            _validated.Remove(key);
             _session.Journal.Save();
             _writer = new ZoneRestorer(_objects, data.Records, data.Snapshot, _zone, AddWarning);
             _visited.Add(key);
@@ -69,7 +67,7 @@ namespace Landoria.WorldCrawler.Restoration
             _phase = RestorePhase.Restoring;
         }
 
-        // Applies and cleans the loaded zone under the existing bounded writer.
+        // Marks the zone restored once its objects and cleanup are done, before resolving links.
         private void Restore()
         {
             if (!ZoneReady())
@@ -81,13 +79,12 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return;
             }
-            _validated.Add(ZoneKey(_zone.X, _zone.Z));
-            _unresolved.Clear();
+            _applied.Add(ZoneKey(_zone.X, _zone.Z));
             _scan = _session.Archive.Connections.AsEnumerable().GetEnumerator();
             _phase = RestorePhase.Connecting;
         }
 
-        // Leaves unavailable cross-zone links pending without holding the player indefinitely.
+        // Retries source links independently of zone progress and checkpoints actual native changes.
         private void Connect()
         {
             for (var i = 0; i < 40; i++)
@@ -98,26 +95,22 @@ namespace Landoria.WorldCrawler.Restoration
                     return;
                 }
                 var source = _scan.Current;
-                if (RestoreRecordPolicy.Include(source) && !_objects.Connect(source))
+                if (RestoreRecordPolicy.Include(source))
                 {
-                    var key = ZoneKey(source.ZoneX, source.ZoneZ);
-                    _unresolved.Add(key);
-                    AddWarning("Zone " + key + " awaits a linked source object; revisit after its destination is restored.");
+                    _dirty |= _objects.Connect(source, _session.Archive);
                 }
             }
         }
 
-        // Keeps validated but unresolved zones out of the durable-completion batch.
+        // Reports the restored zone; unresolved links do not block its progress or checkpoint.
         private void FinishZone()
         {
             _scan.Dispose();
             _scan = null;
             var report = _writer.Report();
             _restoredObjects += report.Added.Sum(item => item.Count);
-            _applied.UnionWith(_validated.Where(key => !_unresolved.Contains(key)));
-            _applied.ExceptWith(_unresolved);
             _session.Journal.Save();
-            _log.LogInfo("Applied zone " + ZoneKey(_zone.X, _zone.Z) + "; awaiting native save or unresolved links.");
+            _log.LogInfo("Applied zone " + ZoneKey(_zone.X, _zone.Z) + "; shown in green; awaiting native save.");
             ZoneRestored?.Invoke(report);
             _writer = null;
             _zone = null;
@@ -131,7 +124,7 @@ namespace Landoria.WorldCrawler.Restoration
             _phase = RestorePhase.Waiting;
         }
 
-        // Removes temporary support protection only after all available source zones have valid links.
+        // Removes temporary support protection after all available source zones were restored.
         private void FinalizeObjects()
         {
             for (var i = 0; i < 40; i++)
@@ -152,8 +145,6 @@ namespace Landoria.WorldCrawler.Restoration
                 if (target == null)
                 {
                     AddWarning("Missing imported object at finalization: " + RestoreWarnings.Describe(_scan.Current));
-                    var key = ZoneKey(_scan.Current.ZoneX, _scan.Current.ZoneZ);
-                    _applied.Remove(key);
                     continue;
                 }
                 if (target.GetBool("WorldCrawler.pending", false))

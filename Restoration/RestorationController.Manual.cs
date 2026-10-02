@@ -11,11 +11,12 @@ namespace Landoria.WorldCrawler.Restoration
     // Restores loaded neighboring sectors once per encounter; the user controls every journey.
     internal sealed partial class RestorationController
     {
-        // Shows durable saved revisions in green; applied but unsaved changes remain amber.
+        // Shows restored zones in green immediately, including those awaiting a native save.
         internal ExportMapOverlayData MapProgress()
         {
             return _session?.Archive == null ? null :
-                ProgressMapSnapshot.Restore(_session.Archive.Manifest.Zones, _session.Journal.State.Completed);
+                ProgressMapSnapshot.Restore(_session.Archive.Manifest.Zones,
+                    _session.Journal.State.Completed.Concat(_applied));
         }
 
         // Queues source files in actual near coverage without steering toward them.
@@ -43,23 +44,30 @@ namespace Landoria.WorldCrawler.Restoration
             _phase = RestorePhase.Reading;
         }
 
-        // Suspends unfinished mutations when free movement or a teleport leaves the loaded sector.
+        // Silently suspends imports during teleports; native checkpoints may still finish.
         private bool ManualTransit()
         {
             var transit = Player.m_localPlayer.IsTeleporting();
+            _teleportTransit |= transit;
             _scope.Refresh(Player.m_localPlayer.transform.position);
-            if (_zone != null && (transit || !_scope.Contains(_zone.X, _zone.Z)) &&
+            if (_zone != null && (_teleportTransit || !_scope.Contains(_zone.X, _zone.Z)) &&
                 (_phase == RestorePhase.Reading || _phase == RestorePhase.Restoring || _phase == RestorePhase.Connecting))
             {
                 if (_read != null && !_read.IsCompleted)
                 {
                     return true;
                 }
-                AddWarning("External travel interrupted zone " + ZoneKey(_zone.X, _zone.Z) +
-                    "; unfinished work remains pending for a later visit.");
+                var key = ZoneKey(_zone.X, _zone.Z);
+                if (!_teleportTransit)
+                {
+                    AddWarning("External travel interrupted zone " + key +
+                        "; unfinished work remains pending for a later visit.");
+                }
+                _visited.Remove(key);
                 SuspendZone();
                 _phase = RestorePhase.Waiting;
             }
+            _teleportTransit = transit;
             return transit && !IsSavePhase();
         }
 

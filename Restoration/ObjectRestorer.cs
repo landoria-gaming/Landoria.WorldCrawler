@@ -185,7 +185,6 @@ namespace Landoria.WorldCrawler.Restoration
             }
             target.SetOwner(ZDOMan.GetSessionID());
             LegacyMigration.Apply(target, source, version);
-            target.SetConnection(ZDOExtraData.ConnectionType.None, ZDOID.None);
             target.SetPosition(Vector(source.Position));
             target.SetRotation(Rotation(source.Rotation));
             if (source.LocalScale != null)

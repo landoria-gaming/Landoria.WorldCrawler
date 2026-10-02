@@ -24,7 +24,7 @@ namespace Landoria.WorldCrawler.Restoration
                 return;
             }
             CheckSaveTimeout();
-            if (ZNet.instance.IsSaving() || _objects?.DeletionsPending() == true)
+            if (ZNet.instance.IsSaving() || _objects?.DeletionsPending() == true || SceneryDeletionsPending?.Invoke() == true)
             {
                 return;
             }
@@ -34,7 +34,7 @@ namespace Landoria.WorldCrawler.Restoration
             _phase = _initialSave ? RestorePhase.InitialSave : RestorePhase.Saving;
         }
 
-        // Publishes completion only after the game's committed native files have been verified.
+        // Persists map progress after a verified native save; live zones are already green.
         private void FinishSave()
         {
             CheckSaveTimeout();
@@ -52,7 +52,6 @@ namespace Landoria.WorldCrawler.Restoration
             _lastSaveUtc = DateTime.UtcNow.ToString("HH:mm:ss") + " UTC";
             _session.Journal.Save();
             _applied.Clear();
-            _validated.ExceptWith(_session.Journal.State.Completed);
             _dirty = false;
             _lastSave = Time.unscaledTime;
             _log.LogInfo("Native restoration checkpoint saved at " + _lastSaveUtc + ".");

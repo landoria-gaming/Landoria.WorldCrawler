@@ -54,10 +54,18 @@ Local daylight is set to **0.4** when entering a world. Movement stays normal: n
 
 - Enter the local world and press **F10**. Its **name, seed and UID** must match the recording. Move freely to recorded areas.
 - Existing imported objects are left untouched, even if edited. Missing objects are restored; a destroyed imported object can therefore be recreated on a later visit.
-- **Amber** means never restored and saved; **green** means restored and saved at least once. Only this zone history is tracked in `restore.json`, beside the exports; no character history or separate object ledger.
+- **Green** means restored, even before the next save; **amber** means not yet restored. Saved zone history stays in `restore.json`, beside the exports; no character history or separate object ledger.
+- Teleporting silently pauses restoration; it resumes when you arrive. Missing object links do not block green zones.
 - The world saves every **minute** at a safe boundary. Press **F10** again for the final save.
 - F10 indexes all prefab types in the recording. Inside recorded zones, those types come from the source files: extra local objects are removed, including trees and rocks.
 - Unrecorded zones, prefab types absent from the recording, players, and creatures stay untouched. Merchant exception: restoring a source merchant removes extra copies of that same merchant elsewhere in the world.
+
+### Remove unwanted scenery
+
+- In your local world, back up the world first. These commands work while F10 runs.
+- `indestructible list` lists nearby stone circles, dolmens and other safe indestructible decorations within **30 m**. Use `indestructible list 50` for a different radius, up to 64 m.
+- `indestructible delete 2` removes only entry **2** from that list, including the whole monument when listed as a site. The next world save makes the deletion persistent; restore a backup to undo it.
+- All types present in the export are protected, even before import. Player builds, imported objects, creatures, merchants, dungeons and unrecognized functional structures are also excluded. During a teleport or world save, retry the command after it finishes.
 
 ## Screenshot
 

@@ -21,6 +21,7 @@ namespace Landoria.WorldCrawler
         private RestorationController _restoration;
         private ExportMapOverlay _mapOverlay;
         private RecordingHud _recordingHud;
+        private IndestructibleCommand _indestructible;
         private ConfigEntry<bool> _enableCheats;
         private readonly LocalDaylight _daylight = new LocalDaylight();
 
@@ -37,6 +38,8 @@ namespace Landoria.WorldCrawler
             _controller = new CrawlController(Logger);
             _preparation = new WorldPreparation(Logger);
             _restoration = new RestorationController(Logger);
+            _indestructible = new IndestructibleCommand(Logger, () => _controller.Busy || _preparation.Busy, _restoration);
+            _restoration.SceneryDeletionsPending = _indestructible.DeletionsPending;
             _mapOverlay = new ExportMapOverlay(Logger, _controller, _restoration);
             _recordingHud = new RecordingHud(Logger);
             _controller.ZoneSaved += _recordingHud.AddReport;
@@ -102,6 +105,7 @@ namespace Landoria.WorldCrawler
         private void OnDestroy()
         {
             Flight.PlayerProtection.Enabled = false;
+            _indestructible?.Dispose();
             _daylight.Reset();
             try
             {

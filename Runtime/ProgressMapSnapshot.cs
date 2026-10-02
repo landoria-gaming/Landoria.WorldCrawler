@@ -4,7 +4,7 @@ using Landoria.WorldCrawler.Storage;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Creates immutable map geometry from actual durable export or import checkpoints.
+    // Creates immutable map geometry from saved exports and restored destination zones.
     internal static class ProgressMapSnapshot
     {
         // Shows committed captures, retaining the last good rectangle while its replacement is being validated.
@@ -14,7 +14,7 @@ namespace Landoria.WorldCrawler.Runtime
             return Build(captured, captured.Select(v => v.X + ":" + v.Z));
         }
 
-        // Uses import completion rather than export completion when showing the destination world.
+        // Shows restored zones without waiting for their next native save.
         internal static ExportMapOverlayData Restore(IEnumerable<ZoneEntry> zones, IEnumerable<string> completed)
         {
             return Build(zones, completed);
@@ -28,7 +28,7 @@ namespace Landoria.WorldCrawler.Runtime
                 .Select(zone => zone.X + ":" + zone.Z));
         }
 
-        // Splits the same unique sector inventory into saved and remaining rectangles.
+        // Splits the same unique sector inventory into completed and remaining rectangles.
         private static ExportMapOverlayData Build(IEnumerable<ZoneEntry> zones, IEnumerable<string> completed)
         {
             var saved = new HashSet<string>(completed);

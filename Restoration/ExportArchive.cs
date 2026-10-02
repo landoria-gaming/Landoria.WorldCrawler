@@ -139,6 +139,13 @@ namespace Landoria.WorldCrawler.Restoration
             return item.SourceUser + ":" + item.SourceId.ToString(CultureInfo.InvariantCulture);
         }
 
+        // Looks up an original link endpoint only in the validated, frozen export.
+        internal CapturedObject FindObject(string key)
+        {
+            _latest.TryGetValue(key, out var item);
+            return item;
+        }
+
         // Releases the export lock without changing export progress.
         public void Dispose()
         {
