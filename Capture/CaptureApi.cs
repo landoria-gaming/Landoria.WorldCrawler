@@ -85,7 +85,7 @@ namespace Landoria.WorldCrawler.Capture
             z = Convert.ToInt32(_zoneY.GetValue(zone));
         }
 
-        // Removes one generated location from the native registry and its lookup caches.
+        // Removes the same generated location type from its native sector registry and lookup caches.
         internal bool RemoveLocationRegistration(Vector3 center, int expectedHash)
         {
             if (_legacy)
@@ -98,11 +98,10 @@ namespace Landoria.WorldCrawler.Capture
             var location = locations[zone];
             if (location == null)
             {
-                return false;
+                return true;
             }
             var definition = (ZoneSystem.ZoneLocation)_locationDefinition.GetValue(location);
-            if (HorizontalDistance((Vector3)_locationPosition.GetValue(location), center) > 0.1f ||
-                definition == null || definition.m_prefabName.GetStableHashCode() != expectedHash)
+            if (definition == null || definition.m_prefabName.GetStableHashCode() != expectedHash)
             {
                 return false;
             }
@@ -140,7 +139,7 @@ namespace Landoria.WorldCrawler.Capture
             }
         }
 
-        // Location registries identify sites horizontally; their stored terrain height may differ from the proxy.
+        // Cache entries may retain a different terrain height for the same horizontal site.
         private static float HorizontalDistance(Vector3 first, Vector3 second)
         {
             var x = first.x - second.x;
