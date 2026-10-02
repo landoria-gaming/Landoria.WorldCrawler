@@ -14,7 +14,7 @@ namespace Landoria.WorldCrawler
     {
         internal const string PluginGuid = "Landoria.WorldCrawler";
         internal const string PluginName = "World Crawler";
-        internal const string PluginVersion = "1.0.0";
+        internal const string PluginVersion = "1.0.1";
         private CrawlController _controller;
         private Harmony _harmony;
         private WorldPreparation _preparation;
