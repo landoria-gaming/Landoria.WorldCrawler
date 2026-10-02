@@ -70,8 +70,15 @@ namespace Landoria.WorldCrawler.Restoration
         private static bool Safe(GameObject root, ZNetView view, string name)
         {
             if (root == null || !root.activeInHierarchy ||
-                root.GetComponentsInChildren<Transform>(true).Any(node => CaptureExclusionPolicy.Classify(node.gameObject) != null) ||
-                root.GetComponentsInChildren<ZNetView>(true).Any(child => child != view && child.GetZDO() != null))
+                root.GetComponentsInChildren<Transform>(true).Any(node => CaptureExclusionPolicy.Classify(node.gameObject) != null))
+            {
+                return false;
+            }
+            if (StoneSite(name))
+            {
+                return root.GetComponentsInChildren<Collider>().Any(collider => collider.enabled && !collider.isTrigger);
+            }
+            if (root.GetComponentsInChildren<ZNetView>(true).Any(child => child != view && child.GetZDO() != null))
             {
                 return false;
             }
@@ -80,7 +87,7 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return false;
             }
-            return (StoneSite(name) || scripts.All(script => Decorative(script) || script is IDestructible)) &&
+            return scripts.All(script => Decorative(script) || script is IDestructible) &&
                 root.GetComponentsInChildren<Collider>().Any(collider => collider.enabled && !collider.isTrigger);
         }
 
@@ -137,9 +144,22 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 throw new InvalidOperationException("The location registry no longer matches this entry. Nothing was deleted.");
             }
+            DeleteHierarchy();
+            Removed = true;
+        }
+
+        // Deletes every durable member of a known generated site before removing its proxy.
+        private void DeleteHierarchy()
+        {
+            var children = _root.GetComponentsInChildren<ZNetView>(true)
+                .Where(child => child != null && child != _view && child.GetZDO() != null).ToArray();
+            foreach (var child in children)
+            {
+                child.GetZDO().SetOwner(ZDOMan.GetSessionID());
+                ZNetScene.instance.Destroy(child.gameObject);
+            }
             _data.SetOwner(ZDOMan.GetSessionID());
             ZNetScene.instance.Destroy(_view.gameObject);
-            Removed = true;
         }
     }
 }
