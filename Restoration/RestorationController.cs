@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using BepInEx.Logging;
@@ -12,7 +11,7 @@ using UnityEngine;
 
 namespace Landoria.WorldCrawler.Restoration
 {
-    // Visits exported sectors and commits resumable native-world restoration one zone at a time.
+    // Applies source files only around the manually moved player, with batched native checkpoints.
     internal sealed partial class RestorationController : IDisposable
     {
         private readonly RestoreSelection _options;
@@ -21,9 +20,12 @@ namespace Landoria.WorldCrawler.Restoration
         private RestorePhase _phase;
         private ObjectRestorer _objects;
         private RestoreWarnings _warnings;
-        private RestoreFlightNavigator _restoreNavigation;
         private ReceiveMotionGate _motionGate;
-        private bool _receiveHold;
+        private readonly NearZoneScope _scope = new NearZoneScope();
+        private readonly HashSet<string> _visited = new HashSet<string>();
+        private readonly HashSet<string> _validated = new HashSet<string>();
+        private readonly HashSet<string> _applied = new HashSet<string>();
+        private readonly HashSet<string> _unresolved = new HashSet<string>();
         private IEnumerator<CapturedObject> _scan;
         private Task<string> _backup;
         private Task<ZoneImportData> _read;
@@ -31,35 +33,29 @@ namespace Landoria.WorldCrawler.Restoration
         private ZoneEntry _zone;
         private ZoneRestorer _writer;
         private uint _saveBefore;
-        private bool _pause;
-        private bool _finalSave;
-        private bool _initialSave;
-        private float _nextMessage;
-        private float _waitingSince;
+        private bool _pause, _initialSave, _finalSave, _dirty, _finalized;
+        private float _nextMessage, _waitingSince, _lastSave, _retrySaveAt;
+        private string _lastSaveUtc = "none";
         public bool Active => _phase != RestorePhase.Idle && _phase != RestorePhase.Stopped;
         public bool Busy => Active || _closing != null && !_closing.IsCompleted;
 
-        // Shares the selected export and logs while keeping export and import controllers separate.
+        // Keeps export selection independent of this manual restore operation.
         public RestorationController(RestoreSelection options, ManualLogSource log)
         {
             _options = options;
             _log = log;
         }
 
-        // Starts explicitly or pauses after the current restoration/save transaction.
-        public void Toggle(bool manual = false)
+        // F10 starts or requests a final checkpoint without choosing any destination.
+        public void Toggle()
         {
             try
             {
                 if (Active)
                 {
-                    if (_manual != manual)
-                    {
-                        Say("Pause the active operation with its own shortcut before switching modes.");
-                        return;
-                    }
                     _pause = true;
-                    Say("Pause requested after zone validation and saving.");
+                    _retrySaveAt = 0f;
+                    Say("Stopping restoration; saving changes before releasing flight.");
                     return;
                 }
                 if (Busy)
@@ -67,16 +63,11 @@ namespace Landoria.WorldCrawler.Restoration
                     Say("Finishing the previous operation.");
                     return;
                 }
-                if (_closing?.IsFaulted == true)
-                {
-                    _log.LogError(_closing.Exception);
-                }
-                _closing = null;
-                _manual = manual;
-                _session = new RestoreSession(_options, manual);
-                _pause = false;
-                _finalSave = false;
-                ResetRoute();
+                _closing?.GetAwaiter().GetResult();
+                Reset();
+                _session = new RestoreSession(_options);
+                _session.StartFlight(CrawlerConstants.Speed);
+                _motionGate = new ReceiveMotionGate(Player.m_localPlayer, CrawlerConstants.ZoneTimeout);
                 _phase = RestorePhase.Preparing;
                 Say("Validating the export and prepared local world...");
             }
@@ -86,18 +77,21 @@ namespace Landoria.WorldCrawler.Restoration
             }
         }
 
-        // Clears only transient route state before a new operation starts.
-        private void ResetRoute()
+        // Clears session-local visits, never durable identities or completed checkpoints.
+        private void Reset()
         {
+            _closing = null;
             _zone = null;
-            _lastManualZone = null;
             _writer = null;
-            _waitingSince = 0;
-            _receiveHold = false;
-            _manualVisited = 0;
+            _pause = _dirty = _finalSave = _finalized = false;
+            _visited.Clear();
+            _validated.Clear();
+            _applied.Clear();
+            _unresolved.Clear();
+            _retrySaveAt = 0f;
         }
 
-        // Keeps game APIs on the main thread and stops immediately on loss of local authority.
+        // Keeps all native APIs on the Unity thread and suspends mutation during native saves.
         public void Update()
         {
             if (!Active)
@@ -107,26 +101,19 @@ namespace Landoria.WorldCrawler.Restoration
             try
             {
                 _session.Check();
-                if (ManualTransit())
+                if (Time.timeScale <= 0f || ManualTransit())
                 {
                     return;
                 }
-                if (Time.timeScale <= 0f)
+                _scope.Refresh(Player.m_localPlayer.transform.position);
+                if (!ZNet.instance.IsSaving() || IsSavePhase())
                 {
-                    return;
+                    Advance();
                 }
-                if (!_manual && _phase != RestorePhase.Travelling && _phase != RestorePhase.Landing)
+                if (Active)
                 {
-                    _session.Hold(Time.unscaledDeltaTime);
-                }
-                if (_manual && _session.Flight?.Active == true)
-                {
-                    _session.Flight.TickManual(_phase != RestorePhase.ManualWaiting || HoldForReception(), Time.unscaledDeltaTime);
-                }
-                Advance();
-                if (Active && Time.unscaledTime >= _nextMessage)
-                {
-                    _nextMessage = Time.unscaledTime + 5f;
+                    _session.Flight.TickManual(_phase != RestorePhase.Waiting || _motionGate.Hold() ||
+                        ZNet.instance.IsSaving(), Time.unscaledDeltaTime);
                     ShowProgress();
                 }
             }
@@ -136,9 +123,15 @@ namespace Landoria.WorldCrawler.Restoration
             }
         }
 
-        // Dispatches a single bounded state-machine step.
+        // Dispatches bounded data work; there are no route, travel, or landing states.
         private void Advance()
         {
+            if (_pause && CanStopAtBoundary())
+            {
+                SuspendZone();
+                QueueSave(false, true);
+                return;
+            }
             switch (_phase)
             {
                 case RestorePhase.Preparing:
@@ -153,20 +146,6 @@ namespace Landoria.WorldCrawler.Restoration
                 case RestorePhase.Backup:
                     Backup();
                     break;
-                default:
-                    AdvanceRoute();
-                    break;
-            }
-        }
-
-        // Advances automatic travel or manually visited zones and durable save transactions.
-        private void AdvanceRoute()
-        {
-            switch (_phase)
-            {
-                case RestorePhase.Travelling:
-                    Travel();
-                    break;
                 case RestorePhase.Reading:
                     ReadZone();
                     break;
@@ -176,6 +155,17 @@ namespace Landoria.WorldCrawler.Restoration
                 case RestorePhase.Connecting:
                     Connect();
                     break;
+                default:
+                    AdvanceCheckpoint();
+                    break;
+            }
+        }
+
+        // Advances saving and idle work separately from preparation and zone application.
+        private void AdvanceCheckpoint()
+        {
+            switch (_phase)
+            {
                 case RestorePhase.RequestSave:
                     RequestSave();
                     break;
@@ -185,16 +175,28 @@ namespace Landoria.WorldCrawler.Restoration
                 case RestorePhase.Finalizing:
                     FinalizeObjects();
                     break;
-                case RestorePhase.ManualWaiting:
-                    WaitForManualZone();
-                    break;
-                case RestorePhase.Landing:
-                    Land();
+                case RestorePhase.Waiting:
+                    WaitForZone();
                     break;
             }
         }
 
-        // Begins all-prefab validation before the first object is changed.
+        // Allows cancellation after a file read, never in the middle of an atomic/native save.
+        private bool CanStopAtBoundary()
+        {
+            return _phase == RestorePhase.Waiting || _phase == RestorePhase.Restoring ||
+                _phase == RestorePhase.Connecting || _phase == RestorePhase.Finalizing ||
+                _phase == RestorePhase.Reading && _read.IsCompleted;
+        }
+
+        // Allows the owner of a save to poll completion while mutation remains suspended.
+        private bool IsSavePhase()
+        {
+            return _phase == RestorePhase.RequestSave || _phase == RestorePhase.Saving ||
+                _phase == RestorePhase.InitialSave || _phase == RestorePhase.Backup;
+        }
+
+        // Builds source-aware identity and cleanup indexes before any world mutation.
         private void Prepare()
         {
             if (!_session.Prepare())
@@ -202,17 +204,18 @@ namespace Landoria.WorldCrawler.Restoration
                 return;
             }
             _warnings = new RestoreWarnings(_session.Journal.State.Warnings, message => _log.LogWarning(message));
-            if (_session.Archive.Manifest.Zones.Count < _session.Archive.PlannedZoneCount)
+            if (_session.Archive.LegacyCaptureCount > 0)
             {
-                AddWarning($"Partial export: restoring {_session.Archive.Manifest.Zones.Count}/{_session.Archive.PlannedZoneCount} zones; uncaptured zones will be skipped.");
+                AddWarning(_session.Archive.LegacyCaptureCount +
+                    " legacy captures retain their original evidence. Absence-based cleanup is disabled in those zones.");
             }
             _objects = new ObjectRestorer(_session.Journal.State.Fingerprint, _session.Journal.State,
                 _session.Archive.Cleanup, AddWarning);
-            SelectRecords();
+            _scan = _session.Archive.Records.GetEnumerator();
             _phase = RestorePhase.Preflight;
         }
 
-        // Validates selected pending records without reopening already completed zones.
+        // Validates all included prefabs before changing a single destination object.
         private void Preflight()
         {
             if (!_objects.IndexIdentities())
@@ -225,64 +228,83 @@ namespace Landoria.WorldCrawler.Restoration
                 {
                     _scan.Dispose();
                     _scan = null;
-                    _log.LogInfo("Restoration preflight complete: " + _session.Journal.State.Completed.Count
-                        + " saved zones retained; " + _session.Journal.State.Objects.Count + " source mappings checked.");
                     QueueSave(true, false);
                     return;
                 }
-                var record = _scan.Current;
-                if (!RestoreRecordPolicy.Include(record))
+                if (RestoreRecordPolicy.Include(_scan.Current))
                 {
-                    continue;
+                    ObjectRestorer.Validate(_scan.Current);
                 }
-                ObjectRestorer.Validate(record);
-                _objects.Resolve(record);
             }
         }
 
-        // Bounds waits for a native save without confusing silence with success.
-        private void CheckSaveTimeout()
-        {
-            if (Time.unscaledTime - _waitingSince > 300f)
-            {
-                throw new TimeoutException("Native world save timed out.");
-            }
-        }
-
-        // Records and logs each distinct review item without changing restoration decisions.
+        // Records distinct review warnings without changing the cleanup policy.
         private void AddWarning(string warning)
         {
-            _warnings.Add(warning);
+            if (_warnings == null)
+            {
+                _log.LogWarning(warning);
+            }
+            else
+            {
+                _warnings.Add(warning);
+            }
         }
 
-        // Uses the same deterministic sector label throughout the journal.
+        // Uses one deterministic sector label in files and journals.
         private static string ZoneKey(int x, int z)
         {
-            return x + ":" + z;
+            return NearZoneScope.Key(x, z);
         }
 
-        // Stops and preserves unfinished work instead of claiming a partial zone was committed.
+        // Keeps dirty local changes pending and protected after a same-session data failure.
         private void Fail(Exception error)
         {
-            _log.LogError(Operation + " stopped in phase=" + _phase +
-                (_zone == null ? "" : "; zone=" + ZoneKey(_zone.X, _zone.Z)) + ". " + error);
+            _log.LogError("Restoration phase=" + _phase + "; zone=" +
+                (_zone == null ? "none" : ZoneKey(_zone.X, _zone.Z)) + ": " + error);
+            if (_session?.Flight?.Active == true && GameContext.Ready(true) &&
+                GameContext.SameSession(_session.World, Player.m_localPlayer) && _dirty && !IsSavePhase())
+            {
+                AddWarning("Incomplete work remains pending: " + error.Message);
+                _pause = true;
+                SuspendZone();
+                QueueSave(false, true);
+                return;
+            }
+            if (RetryFailedSave(error))
+            {
+                return;
+            }
             _phase = RestorePhase.Stopped;
             try
             {
                 _session?.Fault(error.Message);
             }
-            catch (Exception save)
-            {
-                _log.LogError(save);
-            }
             finally
             {
                 Close();
             }
-            Say(Operation + " interrupted: " + error.Message);
+            Say("Restoration interrupted. Unsaved work may need replay: " + error.Message);
         }
 
-        // Releases locks only after outstanding file reads and backups have finished.
+        // Retains the live protected session and pending changes while a failed native save is retried.
+        private bool RetryFailedSave(Exception error)
+        {
+            if (_session?.Flight?.Active == true && _dirty && IsSavePhase() &&
+                GameContext.Ready(true) && GameContext.SameSession(_session.World, Player.m_localPlayer))
+            {
+                _session.Journal.State.Completed.RemoveAll(key => _applied.Contains(key));
+                AddWarning("Native save not checkpointed; changes remain pending. F10 retries stopping: " + error.Message);
+                _initialSave = false;
+                _retrySaveAt = Time.unscaledTime + 5f;
+                _waitingSince = _retrySaveAt;
+                _phase = RestorePhase.RequestSave;
+                return true;
+            }
+            return false;
+        }
+
+        // Releases resources only after outstanding disk reads and backups have finished.
         private void Close()
         {
             RestoreProtection.Clear();
@@ -296,45 +318,37 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return;
             }
-            try
+            session.Flight?.Abort();
+            var workers = Task.WhenAll((Task)_read ?? Task.CompletedTask, (Task)_backup ?? Task.CompletedTask);
+            _read = null;
+            _backup = null;
+            _closing = workers.ContinueWith(task =>
             {
-                session.Flight?.Abort();
-            }
-            catch (Exception error)
-            {
-                _log.LogError(error);
-            }
-            finally
-            {
-                var workers = Task.WhenAll((Task)_read ?? Task.CompletedTask, (Task)_backup ?? Task.CompletedTask);
-                _read = null;
-                _backup = null;
-                _closing = workers.ContinueWith(task =>
+                if (task.IsFaulted)
                 {
-                    if (task.IsFaulted)
-                    {
-                        var observed = task.Exception;
-                    }
-                    session.DisposeResources();
-                    return session.ReleaseTask;
+                    var observed = task.Exception;
                 }
-, TaskScheduler.Default).Unwrap();
-            }
+                session.DisposeResources();
+                return session.ReleaseTask;
+            }, TaskScheduler.Default).Unwrap();
         }
 
-        // Reports concise state transitions in the log and HUD.
+        // Reports state transitions in the log and HUD.
         private void Say(string message)
         {
             _log.LogInfo(message);
             HudNotification.Show(message);
         }
 
-        // Restores controlled state when the plugin unloads while retaining resumable progress.
+        // Cannot promise a native final save during forced plugin shutdown.
         public void Dispose()
         {
             if (_session != null)
             {
-                Fail(new OperationCanceledException("Plugin unloaded."));
+                _log.LogWarning("Restoration unloaded. Last confirmed native save: " + _lastSaveUtc +
+                    "; unsaved changes may need replay.");
+                _phase = RestorePhase.Stopped;
+                Close();
             }
         }
     }

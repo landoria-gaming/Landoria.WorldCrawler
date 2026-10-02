@@ -15,7 +15,6 @@ namespace Landoria.WorldCrawler.Capture
         private readonly FieldInfo _zoneRoot;
         private readonly FieldInfo _proxyInstance;
         private readonly FieldInfo _locationInstances;
-        private readonly FieldInfo[] _locationCaches;
         private readonly FieldInfo _locationPosition;
         private readonly FieldInfo _locationDefinition;
         private readonly FieldInfo _zoneX;
@@ -45,9 +44,6 @@ namespace Landoria.WorldCrawler.Capture
             var locationType = _locationInstances.FieldType.GetGenericArguments()[1];
             _locationPosition = RequiredField(locationType, "m_position");
             _locationDefinition = RequiredField(locationType, "m_location");
-            _locationCaches = new[] { RequiredField(typeof(ZoneSystem), "m_locationIDCache"),
-                RequiredField(typeof(ZoneSystem), "m_locationGroupCache"),
-                RequiredField(typeof(ZoneSystem), "m_locationMaxGroupCache") };
             if (!typeof(IDictionary).IsAssignableFrom(_zones.FieldType)
                 || _zoneRoot.FieldType != typeof(GameObject) || _proxyInstance.FieldType != typeof(GameObject))
             {
@@ -92,6 +88,11 @@ namespace Landoria.WorldCrawler.Capture
         // Removes one generated location from the native registry and its lookup caches.
         internal bool RemoveLocationRegistration(Vector3 center, int expectedHash)
         {
+            if (_legacy)
+            {
+                throw new NotSupportedException("Location restoration requires Valheim 1.0.x.");
+            }
+            var caches = ResolveLocationCaches();
             var locations = (IDictionary)_locationInstances.GetValue(ZoneSystem.instance);
             var zone = _getZone.Invoke(null, new object[] { center });
             var location = locations[zone];
@@ -106,11 +107,19 @@ namespace Landoria.WorldCrawler.Capture
                 return false;
             }
             locations.Remove(zone);
-            foreach (var cacheField in _locationCaches)
+            foreach (var cacheField in caches)
             {
                 RemoveCachedLocation((IDictionary)cacheField.GetValue(ZoneSystem.instance), location);
             }
             return true;
+        }
+
+        // Resolves current-only cleanup fields before mutation, never during shared export startup.
+        private static FieldInfo[] ResolveLocationCaches()
+        {
+            return new[] { RequiredField(typeof(ZoneSystem), "m_locationIDCache"),
+                RequiredField(typeof(ZoneSystem), "m_locationGroupCache"),
+                RequiredField(typeof(ZoneSystem), "m_locationMaxGroupCache") };
         }
 
         // Removes the matching boxed location value from every list in one native cache.

@@ -14,6 +14,7 @@ namespace Landoria.WorldCrawler.Restoration
     {
         private readonly FileStream _lock;
         private readonly Dictionary<string, CapturedObject> _latest = new Dictionary<string, CapturedObject>();
+        private readonly Dictionary<string, long> _deleted = new Dictionary<string, long>();
         internal CleanupSourceIndex Cleanup { get; } = new CleanupSourceIndex();
         public string DirectoryPath
         {
@@ -31,6 +32,7 @@ namespace Landoria.WorldCrawler.Restoration
         {
             get;
         }
+        public int LegacyCaptureCount { get; private set; }
         public int PlannedZoneCount
         {
             get;
@@ -62,11 +64,24 @@ namespace Landoria.WorldCrawler.Restoration
                 foreach (var zone in Manifest.Zones.OrderBy(z => z.Z).ThenBy(z => z.X))
                 {
                     var snapshot = ReadZone(zone);
+                    if (snapshot.PayloadVersion == 1)
+                    {
+                        LegacyCaptureCount++;
+                    }
                     Cleanup.Observe(snapshot);
+                    IndexDeletions(snapshot);
+                    IndexDepartures(snapshot);
                     signature.Append(zone.FileName).Append(':').Append(zone.Checksum).Append('\n');
                     foreach (var item in snapshot.Objects)
                     {
                         Index(item);
+                    }
+                }
+                foreach (var deletion in _deleted)
+                {
+                    if (_latest.TryGetValue(deletion.Key, out var item) && item.ObservedUtcTicks <= deletion.Value)
+                    {
+                        _latest.Remove(deletion.Key);
                     }
                 }
                 Fingerprint = StoreValidation.Hash(Encoding.UTF8.GetBytes(signature.ToString()));
@@ -76,6 +91,32 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 _lock.Dispose();
                 throw;
+            }
+        }
+
+        // Indexes explicit removals globally so an older neighboring file cannot resurrect a moved object.
+        private void IndexDeletions(ZoneSnapshot snapshot)
+        {
+            foreach (var item in snapshot.Deletions ?? new List<CapturedDeletion>())
+            {
+                var key = item.SourceUser + ":" + item.SourceId.ToString(CultureInfo.InvariantCulture);
+                if (!_deleted.TryGetValue(key, out var old) || old < item.ObservedUtcTicks)
+                {
+                    _deleted[key] = item.ObservedUtcTicks;
+                }
+            }
+        }
+
+        // Suppresses old-position records superseded by an explicitly observed sector crossing.
+        private void IndexDepartures(ZoneSnapshot snapshot)
+        {
+            foreach (var item in snapshot.Departures ?? new List<CapturedDeparture>())
+            {
+                var key = item.SourceUser + ":" + item.SourceId.ToString(CultureInfo.InvariantCulture);
+                if (!_deleted.TryGetValue(key, out var old) || old < item.ObservedUtcTicks)
+                {
+                    _deleted[key] = item.ObservedUtcTicks;
+                }
             }
         }
 
@@ -95,6 +136,11 @@ namespace Landoria.WorldCrawler.Restoration
             if (snapshot.ZoneX != zone.X || snapshot.ZoneZ != zone.Z || snapshot.Objects.Count != zone.ObjectCount)
             {
                 throw new InvalidDataException("The zone payload does not match its envelope.");
+            }
+            if (!snapshot.NaturalAbsenceComplete || !snapshot.TerrainReady || snapshot.StableSeconds < 2f ||
+                snapshot.DungeonExpected && !snapshot.DungeonEvidenceComplete)
+            {
+                throw new InvalidDataException("The source zone has incomplete loading evidence; destination unchanged.");
             }
             return snapshot;
         }
@@ -150,7 +196,7 @@ namespace Landoria.WorldCrawler.Restoration
         public List<CapturedObject> ZoneObjects(int x, int z)
         {
             var zone = Manifest.Zones.Single(v => v.X == x && v.Z == z);
-            return ReadZone(zone).Objects.Where(v => _latest[Key(v)].ZoneX == x && _latest[Key(v)].ZoneZ == z &&
+            return ReadZone(zone).Objects.Where(v => _latest.ContainsKey(Key(v)) && _latest[Key(v)].ZoneX == x && _latest[Key(v)].ZoneZ == z &&
                     _latest[Key(v)].ObservedUtcTicks == v.ObservedUtcTicks)
                 .OrderBy(v => v.Categories.Contains("TerrainComp") || v.Categories.Contains("TerrainModifier") ? 0 :
                     v.Categories.Contains("LocationProxy") ? 1 : v.Categories.Contains("Piece") ? 2 :

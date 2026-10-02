@@ -45,7 +45,6 @@ namespace Landoria.WorldCrawler.Restoration
                 };
                 Validate(State);
                 State.Character = character;
-                State.ReturnPending = false;
             }
             catch
             {
@@ -105,17 +104,6 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 throw new InvalidDataException("The incremental restore journal has missing capture signatures.");
             }
-            if (state.ReturnPending && (!Vector(state.ReturnPosition, 3) || !Vector(state.ReturnRotation, 4) ||
-                Math.Abs(state.ReturnRotation.Sum(v => v * v) - 1f) > 0.05f))
-            {
-                throw new InvalidDataException("The restoration return point is invalid.");
-            }
-        }
-
-        // Validates finite persisted coordinates before they can control flight.
-        private static bool Vector(float[] values, int count)
-        {
-            return values != null && values.Length == count && values.All(v => !float.IsNaN(v) && !float.IsInfinity(v));
         }
 
         // Releases the writer lock without deleting its recovery records.

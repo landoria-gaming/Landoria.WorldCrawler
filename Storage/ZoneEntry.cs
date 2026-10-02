@@ -2,7 +2,7 @@ using System.Runtime.Serialization;
 
 namespace Landoria.WorldCrawler.Storage
 {
-    // Tracks one zone in the frozen exploration inventory.
+    // Tracks one committed recording sector and its canonical file.
     [DataContract]
     public sealed class ZoneEntry
     {

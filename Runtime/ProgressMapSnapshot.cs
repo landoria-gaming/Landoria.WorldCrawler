@@ -7,11 +7,11 @@ namespace Landoria.WorldCrawler.Runtime
     // Creates immutable map geometry from actual durable export or import checkpoints.
     internal static class ProgressMapSnapshot
     {
-        // Groups exported zones without duplicating shared coordinates or treating an active recapture as done.
+        // Shows committed captures, retaining the last good rectangle while its replacement is being validated.
         internal static ExportMapOverlayData Export(WorldManifest manifest, ZoneEntry active)
         {
-            return Build(manifest.Zones, manifest.Zones.Where(v => v.Status == "captured" && v != active)
-                .Select(v => v.X + ":" + v.Z));
+            var captured = manifest.Zones.Where(v => v.Status == "captured").ToList();
+            return Build(captured, captured.Select(v => v.X + ":" + v.Z));
         }
 
         // Uses import completion rather than export completion when showing the destination world.

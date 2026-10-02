@@ -6,13 +6,14 @@ namespace Landoria.WorldCrawler.Flight
     // Allows protected user-directed flight and external teleports without autonomous travel.
     internal sealed partial class FlightController
     {
-        public bool Manual { get; set; }
+        public bool Manual => true;
+        private bool _movementLocked = true;
         private bool _manualTeleport;
 
-        // Allows user map teleports during manual sessions, never during automatic piloting.
+        // Allows explicit map teleports only while accepted data work is idle.
         internal static bool BlocksManualTeleport(Player value)
         {
-            return IsControlled(value) && !current.Manual;
+            return IsControlled(value) && current._movementLocked;
         }
 
         // Hands physics to an external teleport, then adopts its arrival without choosing a destination.
@@ -44,6 +45,7 @@ namespace Landoria.WorldCrawler.Flight
         // Moves with the user's keys at the common sprint multiplier, or holds during data work.
         internal void TickManual(bool hold, float deltaTime)
         {
+            _movementLocked = hold;
             if (WaitForManualTeleport())
             {
                 return;
@@ -52,6 +54,12 @@ namespace Landoria.WorldCrawler.Flight
             var direction = hold || InputBlocked() ? Vector3.zero : ManualDirection();
             var point = player.transform.position + direction * Speed * Mathf.Clamp(deltaTime, 0f, 0.1f);
             Tick(point, deltaTime);
+        }
+
+        // Blocks map clicks immediately when new work is accepted, before the next motion tick.
+        internal void LockMovement()
+        {
+            _movementLocked = true;
         }
 
         // Uses the game's movement bindings and camera heading without enabling debug fly.

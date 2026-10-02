@@ -12,7 +12,7 @@ namespace Landoria.WorldCrawler.Storage
         // Reads a bounded file with no dependency on game serializers.
         internal static T Read<T>(string path)
         {
-            using (var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
             {
                 if (input.Length > MaximumFileLength)
                 {

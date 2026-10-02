@@ -21,7 +21,8 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 _sceneTypes.Add(SceneType(node.Name, node.Components));
             }
-            if (snapshot.NaturalAbsenceComplete && snapshot.TerrainReady &&
+            if (snapshot.PayloadVersion >= 2 && snapshot.NearCoverageValidated && snapshot.InstancesValidated &&
+                snapshot.SceneValidated && snapshot.NaturalAbsenceComplete && snapshot.TerrainReady &&
                 (!snapshot.DungeonExpected || snapshot.DungeonEvidenceComplete))
             {
                 _complete.Add(ZoneKey(snapshot.ZoneX, snapshot.ZoneZ));

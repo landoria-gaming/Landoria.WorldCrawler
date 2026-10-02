@@ -2,7 +2,7 @@ using System.Runtime.Serialization;
 
 namespace Landoria.WorldCrawler.Inventory
 {
-    // Records one eligible destination without depending on game or map objects.
+    // Retains legacy manifest fields without participating in recording or movement.
     [DataContract]
     public sealed class LandmarkPoint
     {

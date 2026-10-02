@@ -7,7 +7,7 @@ namespace Landoria.WorldCrawler.Storage
     [DataContract]
     public sealed class WorldManifest
     {
-        [DataMember(Order = 0)] public int FormatVersion { get; set; } = 1;
+        [DataMember(Order = 0)] public int FormatVersion { get; set; } = 2;
         [DataMember(Order = 1)]
         public WorldIdentity World
         {
@@ -42,26 +42,6 @@ namespace Landoria.WorldCrawler.Storage
         [DataMember(Order = 11)] public string CrawlState { get; set; } = "idle";
         [DataMember(Order = 12)]
         public string GameVersion
-        {
-            get; set;
-        }
-        [DataMember(Order = 13)]
-        public bool ReturnPending
-        {
-            get; set;
-        }
-        [DataMember(Order = 14)]
-        public float[] ReturnPosition
-        {
-            get; set;
-        }
-        [DataMember(Order = 15)]
-        public float[] ReturnRotation
-        {
-            get; set;
-        }
-        [DataMember(Order = 16)]
-        public string ReturnCharacterId
         {
             get; set;
         }

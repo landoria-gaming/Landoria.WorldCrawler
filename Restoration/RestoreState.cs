@@ -14,12 +14,10 @@ namespace Landoria.WorldCrawler.Restoration
         [DataMember] public string Fingerprint;
         [DataMember] public string Character;
         [DataMember] public string UpdatedUtc;
+        [DataMember(EmitDefaultValue = false)] public string LastNativeSaveUtc;
         [DataMember] public string Status = "pending";
         [DataMember] public string Error;
         [DataMember] public string BackupDirectory;
-        [DataMember] public bool ReturnPending;
-        [DataMember] public float[] ReturnPosition = null;
-        [DataMember] public float[] ReturnRotation = null;
         [DataMember] public List<string> Completed = new List<string>();
         [DataMember] public List<RestoredObject> Objects = new List<RestoredObject>();
         [DataMember] public List<string> Warnings = new List<string>();

@@ -1,43 +1,38 @@
 using System;
-using System.Threading.Tasks;
-using Landoria.WorldCrawler.Storage;
-using Landoria.WorldCrawler.Capture;
 using System.IO;
+using System.Threading.Tasks;
+using Landoria.WorldCrawler.Capture;
+using Landoria.WorldCrawler.Storage;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Moves disk validation and landmark indexing off the Unity main thread.
+    // Validates disk checkpoints without scanning maps, pins, portals, or remote zones.
     internal sealed class ExportPreparation : IDisposable
     {
-        private Task<WorldStore> _work;
-        private WorldStore _waiting;
-        private ExportSelection _selection;
-        private LandmarkPortalResolver _portals;
-        private string _characterId;
-        private string _characterName;
+        private readonly Task<WorldStore> _work;
         private bool _taken;
         public Task ReleaseTask { get; private set; } = Task.CompletedTask;
 
-        // Copies game data now and schedules work that never calls Unity APIs.
-        public ExportPreparation(WorldIdentity world, Action<WorldStore> acquired)
+        // Copies the small identity record before moving disk work off the Unity thread.
+        public ExportPreparation(WorldIdentity world)
         {
             var profile = Game.instance.GetPlayerProfile();
             var id = profile.GetPlayerID().ToString(System.Globalization.CultureInfo.InvariantCulture);
             var name = profile.GetName();
-            _selection = new ExportSelection(world);
-            var store = WorldStore.Open(CrawlerConstants.ExportRoot, world, false, _selection.Scope);
+            var version = GameContext.GameVersion;
+            _work = Task.Run(() => Open(world, id, name, version));
+        }
+
+        // Opens only the recording folder; old landmark folders remain untouched.
+        private static WorldStore Open(WorldIdentity world, string id, string name, string version)
+        {
+            var store = WorldStore.Open(CrawlerConstants.ExportRoot, world, false);
             try
             {
                 store.PayloadValidator = ValidatePayload;
-                if (store.Manifest.InventoryInitialized)
-                {
-                    store.ValidateCharacter(id);
-                }
-                acquired(store);
-                _characterId = id;
-                _characterName = name;
-                _portals = new LandmarkPortalResolver();
-                _waiting = store;
+                store.BeginRecording(id, name, version);
+                store.Reconcile();
+                return store;
             }
             catch
             {
@@ -46,7 +41,7 @@ namespace Landoria.WorldCrawler.Runtime
             }
         }
 
-        // Checks decoded source coordinates and counts instead of trusting an outer checksum alone.
+        // Checks decoded coordinates and counts, not only the outer file checksum.
         private static void ValidatePayload(int x, int z, byte[] payload, string version, int objects)
         {
             if (!SupportedGameVersions.CanExport(version))
@@ -60,37 +55,10 @@ namespace Landoria.WorldCrawler.Runtime
             }
         }
 
-        // Opens and checks progress before applying the current landmark selection.
-        private static WorldStore Prepare(WorldStore store, ExportSelection selection, string id, string name)
-        {
-            try
-            {
-                selection.Apply(store, id, name);
-                store.Reconcile();
-                return store;
-            }
-            catch
-            {
-                store.Dispose();
-                throw;
-            }
-        }
-
-        // Transfers exclusive store ownership to the main-thread crawl controller.
+        // Transfers store ownership only after every disk check has finished.
         public bool TryTake(out WorldStore store)
         {
             store = null;
-            if (_work == null)
-            {
-                if (!_portals.Step())
-                {
-                    return false;
-                }
-                _selection.ReadLandmarks(_portals);
-                var pending = _waiting;
-                _work = Task.Run(() => Prepare(pending, _selection, _characterId, _characterName));
-                _waiting = null;
-            }
             if (!_work.IsCompleted)
             {
                 return false;
@@ -100,7 +68,7 @@ namespace Landoria.WorldCrawler.Runtime
             return true;
         }
 
-        // Releases a late result if the player logs out while preparation is running.
+        // Releases a late result when recording stops during initialization.
         public void Dispose()
         {
             if (_taken)
@@ -108,12 +76,6 @@ namespace Landoria.WorldCrawler.Runtime
                 return;
             }
             _taken = true;
-            if (_work == null)
-            {
-                _waiting?.Dispose();
-                _waiting = null;
-                return;
-            }
             ReleaseTask = _work.ContinueWith(task =>
             {
                 if (task.Status == TaskStatus.RanToCompletion)
@@ -124,8 +86,7 @@ namespace Landoria.WorldCrawler.Runtime
                 {
                     var observed = task.Exception;
                 }
-            }
-, TaskScheduler.Default);
+            }, TaskScheduler.Default);
         }
     }
 }

@@ -33,7 +33,7 @@ namespace Landoria.WorldCrawler
             _preparation = new WorldPreparation(selection, Logger);
             _restoration = new RestorationController(selection, Logger);
             _mapOverlay = new ExportMapOverlay(Logger, _controller, _restoration);
-            Logger.LogInfo($"{PluginName} {PluginVersion} is loaded. F10: remaining zones at 4x sprint. LeftCtrl+F10: toggle manual import.");
+            Logger.LogInfo($"{PluginName} {PluginVersion} is loaded. F8: manual recording. F9: prepare world. F10: manual restoration.");
         }
 
         // Advances mutually exclusive world operations using fixed production shortcuts.
@@ -57,9 +57,9 @@ namespace Landoria.WorldCrawler
             try
             {
                 var action = ShortcutInput.Action(Logger);
-                if ((action == 0 || action == 4) && !_restoration.Busy && !_preparation.Busy)
+                if (action == 0 && !_restoration.Busy && !_preparation.Busy)
                 {
-                    _controller.Toggle(action == 4);
+                    _controller.Toggle();
                 }
                 if (action == 1 && !_controller.Busy && !_restoration.Busy)
                 {
@@ -69,28 +69,12 @@ namespace Landoria.WorldCrawler
                 {
                     _restoration.Toggle();
                 }
-                HandleCurrentZoneShortcut(action);
             }
             catch (Exception error)
             {
                 Logger.LogWarning(error.Message);
                 HudNotification.Show(error.Message);
             }
-        }
-
-        // Routes manual reimport through the shared restoration journal and writer.
-        private void HandleCurrentZoneShortcut(int action)
-        {
-            if (action != 3)
-            {
-                return;
-            }
-            if (_controller.Busy || _preparation.Busy)
-            {
-                throw new InvalidOperationException("Pause export or close world preparation before importing the current zone.");
-            }
-            Logger.LogInfo("LeftCtrl+F10 detected: toggling manual import.");
-            _restoration.Toggle(true);
         }
 
         // Follows the map viewport after Minimap has applied this frame's zoom and pan.

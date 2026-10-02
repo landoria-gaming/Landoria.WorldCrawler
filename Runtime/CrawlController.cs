@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Coordinates one connected player's export without calling game APIs off-thread.
+    // Records complete locally validated sectors while the player alone chooses where to travel.
     internal sealed partial class CrawlController : IDisposable
     {
         private readonly ManualLogSource _log;
@@ -18,18 +18,21 @@ namespace Landoria.WorldCrawler.Runtime
         private WorldIdentity _world;
         private Player _player;
         private FlightController _flight;
+        private RecordingObserver _observer;
+        private ReceiveMotionGate _motionGate;
         private ZoneCaptureSession _capture;
         private ZoneEntry _zone;
         private Task _write;
         private Task _closing;
         private CrawlPhase _phase;
-        private bool _pauseRequested;
-        private float _testUntil;
+        private long _writeRevision;
         private float _nextMessage;
-        private FlightLanding _landing;
-        private float _nextPinRefresh;
-        private Vector3 _testTarget;
-        public bool Busy => Active() || _closing != null && !_closing.IsCompleted;
+        private bool _stop;
+        private string _stall;
+        private float _retryAt;
+        private ExportMapOverlayData _map;
+        public bool Busy => Active || _closing != null && !_closing.IsCompleted;
+        private bool Active => _phase != CrawlPhase.Idle && _phase != CrawlPhase.Stopped;
 
         // Captures logging without starting any world operation.
         public CrawlController(ManualLogSource log)
@@ -37,28 +40,20 @@ namespace Landoria.WorldCrawler.Runtime
             _log = log;
         }
 
-        // Starts a crawl or requests a pause at the next committed operation boundary.
-        public void Toggle(bool manual = false)
+        // Starts recording or cancels unfinished observations after any validated disk write.
+        public void Toggle()
         {
             try
             {
-                if (_phase == CrawlPhase.Landing)
+                if (Active)
                 {
-                    return;
+                    _stop = true;
+                    Say("Stopping recording; unfinished observations will not be exported.");
                 }
-                if (Active())
+                else if (!Busy)
                 {
-                    if (_manual != manual)
-                    {
-                        Say("Stop the active mode with its own shortcut before switching.");
-                        return;
-                    }
-                    _pauseRequested = true;
-                    Say("Pause requested; saving, then landing here.");
-                    return;
+                    Start();
                 }
-                _manual = manual;
-                Start();
             }
             catch (Exception error)
             {
@@ -66,74 +61,58 @@ namespace Landoria.WorldCrawler.Runtime
             }
         }
 
-        // Opens a frozen inventory while keeping game data access on Unity's main thread.
+        // Acquires protected manual flight at the current position before loading the recording store.
         private void Start()
         {
-            if (!GameContext.Ready(_manual))
+            if (!GameContext.Ready())
             {
-                Say("Join a world and wait for the map to load before pressing F8.");
+                Say("Join a world and wait for your character before pressing F8.");
                 return;
             }
-            if (_closing != null && !_closing.IsCompleted)
-            {
-                Say("Finishing the previous save...");
-                return;
-            }
-            if (_closing?.Exception != null)
-            {
-                _log.LogError(_closing.Exception);
-            }
+            _closing?.GetAwaiter().GetResult();
             _closing = null;
-            CloseStore();
-            _lastManualZone = null;
             _world = GameContext.Identity();
             _player = Player.m_localPlayer;
-            _pauseRequested = false;
+            _stop = false;
+            _map = null;
+            _stall = null;
             _zone = null;
-            _capture = null;
-            _flight = null;
-            _nextPinRefresh = 0f;
-            _preparation = new ExportPreparation(_world, HoldRecovery);
+            _flight = new FlightController();
+            _flight.Begin(_player, _player.transform.position, _player.transform.rotation);
+            _motionGate = new ReceiveMotionGate(_player, CrawlerConstants.ZoneTimeout);
+            _observer = new RecordingObserver();
+            _preparation = new ExportPreparation(_world);
             _phase = CrawlPhase.Preparing;
-            Say("Building the inventory and checking saved zones...");
-            _log.LogInfo($"World: {_world.Name}; UID={_world.Uid}; seed={_world.SeedText}/{_world.Seed}; generation={_world.GenerationVersion}.");
+            Say("Opening recording. F8 stops; you control all movement.");
         }
 
-        // Advances a bounded amount of work each Unity frame.
+        // Performs bounded main-thread work before allowing the next manual movement step.
         public void Update()
         {
-            if (!Active())
+            if (!Active)
             {
                 return;
             }
             try
             {
-                if (!GameContext.SameSession(_world, _player))
+                CheckSession();
+                if (_stop && _phase != CrawlPhase.Writing)
                 {
-                    throw new InvalidOperationException("Disconnected or changed world; capture paused.");
+                    Stop();
+                    return;
                 }
-                if (_player.IsDead())
-                {
-                    throw new InvalidOperationException("Character died; capture paused.");
-                }
-                if (Time.timeScale <= 0f)
+                if (Time.timeScale <= 0f || Transit())
                 {
                     return;
                 }
-                if (ManualExportTransit())
-                {
-                    return;
-                }
-                if (!_manual && _phase == CrawlPhase.Preparing && _flight != null && _flight.Active)
-                {
-                    _flight.Tick(_player.transform.position, Time.unscaledDeltaTime);
-                }
-                if (_manual && _flight?.Active == true)
-                {
-                    _flight.TickManual(_phase != CrawlPhase.ManualWaiting || HoldForReception(), Time.unscaledDeltaTime);
-                }
+                _observer.Step(_player.transform.position);
                 Advance();
-                ReportProgress();
+                if (Active)
+                {
+                    _flight.TickManual(_phase != CrawlPhase.Waiting || _observer.Pending > 0 ||
+                        _motionGate.Hold(), Time.unscaledDeltaTime);
+                    Report();
+                }
             }
             catch (Exception error)
             {
@@ -141,160 +120,83 @@ namespace Landoria.WorldCrawler.Runtime
             }
         }
 
-        // Dispatches one state transition while file operations run independently.
-        private void Advance()
+        // Rejects disconnection without serializing the incomplete in-memory sector.
+        private void CheckSession()
         {
-            if (_phase == CrawlPhase.Preparing)
+            if (!GameContext.SameSession(_world, _player) || _player.IsDead())
             {
-                FinishPreparation();
-                return;
-            }
-            if (_phase == CrawlPhase.Writing)
-            {
-                FinishWrite();
-                return;
-            }
-            if (_pauseRequested && _phase != CrawlPhase.Landing)
-            {
-                StopHere();
-            }
-            switch (_phase)
-            {
-                case CrawlPhase.ManualWaiting:
-                    WaitForManualExport();
-                    break;
-                case CrawlPhase.Testing:
-                    TestMovement();
-                    break;
-                case CrawlPhase.Travelling:
-                    Travel();
-                    break;
-                case CrawlPhase.Capturing:
-                    Capture();
-                    break;
-                case CrawlPhase.Landing:
-                    Land();
-                    break;
+                throw new InvalidOperationException("Recording disconnected or lost its living character.");
             }
         }
 
-
-        // Stops the route and lands locally after finishing the current disk operation.
-        private void StopHere()
+        // Publishes immutable geometry only after a worker has finished its manifest commit.
+        internal ExportMapOverlayData MapProgress()
         {
-            _capture?.Dispose();
-            _capture = null;
-            if (_zone != null && _zone.Status == "loaded")
-            {
-                _zone.Status = "pending";
-            }
-            SessionCheckpoint.SetState(_store, "stopping", null);
-            if (_manual)
-            {
-                _flight?.Abort();
-            }
-            _landing = new FlightLanding(_flight, _player);
-            _phase = CrawlPhase.Landing;
-            Say("Progress saved. Landing here; no return to the starting point.");
+            return Active ? _map ?? new ExportMapOverlayData() : null;
         }
 
-        // Ends controlled flight at the current horizontal location.
-        private void Land()
-        {
-            if (!_landing.Step(Time.unscaledDeltaTime))
-            {
-                return;
-            }
-            SessionCheckpoint.Finish(_store, !Pending());
-            _phase = Pending() ? CrawlPhase.Paused : CrawlPhase.Completed;
-            Say(_phase == CrawlPhase.Completed ? "Export complete. All selected zones are saved."
-                : "Export paused. Press F8 to resume the remaining zones.");
-            CloseStore();
-        }
-
-        // Checks whether the frozen inventory still contains unfinished observations.
-        private bool Pending()
-        {
-            return _store.Manifest.Zones.Any(z => z.Status != "captured" && z.Status != "skipped");
-        }
-
-        // Limits progress notifications to avoid filling the log every frame.
-        private void ReportProgress()
+        // Displays actual committed progress, with no invented planned total or percentage.
+        private void Report()
         {
             if (Time.unscaledTime < _nextMessage)
             {
                 return;
             }
             _nextMessage = Time.unscaledTime + 5f;
-            var progress = _store == null ? "preparation" :
-                $"{_store.Manifest.Zones.Count(z => z.Status == "captured")}/{_store.Manifest.Zones.Count} zones";
-            var zone = _zone == null ? "" : $" | {_zone.X},{_zone.Z}";
-            Say($"World Crawler : {_phase} | {progress}{zone}" +
-                (_receiveHold ? " | Receiving data; flight paused" : "") +
-                (_capture == null ? "" : " | " + _capture.Status), false);
+            var count = _phase == CrawlPhase.Writing ? "committing" :
+                (_store?.Manifest.Zones.Count(zone => zone.Status == "captured") ?? 0).ToString();
+            var work = _stall ?? _capture?.Status ?? (_observer.Pending > 0 ?
+                "Validating loaded zones; movement locked" : _motionGate.Hold() ? "Waiting for 2 quiet seconds" : "Move to record");
+            HudNotification.Show("Recording | " + count + " zones saved | " +
+                _observer.Pending + " pending | " + work);
         }
 
-        // Distinguishes active state machines from sessions waiting for an F8 press.
-        private bool Active()
+        // Logs visible state changes without flooding the log with per-frame progress.
+        private void Say(string message)
         {
-            return _phase != CrawlPhase.Idle && _phase != CrawlPhase.Paused &&
-                _phase != CrawlPhase.Completed && _phase != CrawlPhase.Faulted;
+            _log.LogInfo(message);
+            HudNotification.Show(message);
         }
 
-        // Records failures without accepting incomplete zones as captured.
+        // Retains validated files and releases control in place when a session fails.
         private void Fail(Exception error)
         {
-            _log.LogError(error);
-            _phase = CrawlPhase.Faulted;
-            try
-            {
-                _flight?.Abort();
-            }
-            catch (Exception release)
-            {
-                _log.LogError(release);
-            }
-            CloseStore(error.Message);
-            Say("Export interrupted: " + error.Message + " Progress preserved.");
+            _log.LogError("Recording interrupted: " + error);
+            Say("Recording interrupted. Saved files preserved; unfinished observations discarded.");
+            Close(error.Message);
         }
 
-        // Avoids racing a worker's atomic commit when releasing its world lock.
-        private void CloseStore(string error = null)
+        // Stops in place after the current atomic write, never saving incomplete observations.
+        private void Stop()
         {
+            Say("Recording stopped. " + (_observer?.Pending ?? 0) + " unfinished observations were not exported.");
+            Close(null);
+        }
+
+        // Observes outstanding file work before releasing its exclusive store lock.
+        private void Close(string error)
+        {
+            _phase = CrawlPhase.Stopped;
             _capture?.Dispose();
             _capture = null;
+            _observer?.Dispose();
+            _observer = null;
             _motionGate?.Dispose();
             _motionGate = null;
-            _continuous = null;
-            _receiveHold = false;
-            var preparation = _preparation;
-            preparation?.Dispose();
+            _flight?.Abort();
+            _flight = null;
+            _preparation?.Dispose();
+            var preparation = _preparation?.ReleaseTask ?? Task.CompletedTask;
             _preparation = null;
-            if (preparation != null)
-            {
-                _closing = Task.WhenAll(_closing ?? Task.CompletedTask, preparation.ReleaseTask);
-            }
             var store = _store;
-            var work = _write;
+            var write = _write ?? Task.CompletedTask;
             _store = null;
             _write = null;
-            if (store == null)
-            {
-                return;
-            }
-            if (work != null && !work.IsCompleted)
-            {
-                var release = work.ContinueWith(task => ReleaseStore(store, error, task.Exception), TaskScheduler.Default);
-                _closing = Task.WhenAll(_closing ?? Task.CompletedTask, release);
-            }
-            else
-            {
-                ReleaseStore(store, error, work?.Exception);
-            }
+            _closing = Task.WhenAll(preparation, write).ContinueWith(task => Release(store, error, task.Exception));
         }
 
-        // Saves an interruption checkpoint after any in-flight commit and releases resources.
-        private void ReleaseStore(WorldStore store, string error, Exception writeError)
+        // Checkpoints a stopped recording only after any earlier worker has finished.
+        private void Release(WorldStore store, string error, Exception writeError)
         {
             try
             {
@@ -302,42 +204,23 @@ namespace Landoria.WorldCrawler.Runtime
                 {
                     _log.LogError(writeError);
                 }
-                if (error != null)
+                if (store != null)
                 {
-                    SessionCheckpoint.SetState(store, "faulted", error);
+                    store.Manifest.CrawlState = error == null ? "stopped" : "interrupted";
+                    store.Manifest.LastError = error ?? writeError?.Message;
+                    store.Save();
                 }
             }
-            catch (Exception saveError)
-            {
-                _log.LogError(saveError);
-            }
             finally
             {
-                store.Dispose();
+                store?.Dispose();
             }
         }
 
-        // Displays short status messages on the character and records significant transitions.
-        private void Say(string message, bool log = true)
-        {
-            if (log)
-            {
-                _log.LogInfo(message);
-            }
-            HudNotification.Show(message);
-        }
-
-        // Releases runtime state when the plugin unloads without deleting export progress.
+        // Releases hooks and locks without silently flushing partial captures on shutdown.
         public void Dispose()
         {
-            try
-            {
-                _flight?.Abort();
-            }
-            finally
-            {
-                CloseStore("Plugin unloaded; resume with F8 after reconnecting.");
-            }
+            Close("Plugin unloaded before recording stopped.");
         }
     }
 }

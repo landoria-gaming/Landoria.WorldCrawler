@@ -4,7 +4,7 @@ using Landoria.WorldCrawler.Inventory;
 
 namespace Landoria.WorldCrawler.Storage
 {
-    // Describes a restartable landmark selection separately from legacy exploration inventories.
+    // Retains legacy export metadata for read-only compatibility; never plans new work.
     [DataContract]
     public sealed class LandmarkSelection
     {

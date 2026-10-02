@@ -11,7 +11,7 @@ namespace Landoria.WorldCrawler.Capture
     [DataContract]
     public sealed class ZoneSnapshot
     {
-        [DataMember(Order = 0)] public int PayloadVersion = 1;
+        [DataMember(Order = 0)] public int PayloadVersion = 2;
         [DataMember(Order = 1)] public int ZoneX;
         [DataMember(Order = 2)] public int ZoneZ;
         [DataMember(Order = 3)] public long StartedUtcTicks;
@@ -43,6 +43,13 @@ namespace Landoria.WorldCrawler.Capture
         [DataMember(Order = 19)] public bool DungeonEvidenceComplete;
         [DataMember(Order = 20)] public int InteriorObjectCount;
         [DataMember(Order = 21)] public bool NaturalAbsenceComplete;
+
+        [DataMember(Order = 22)] public bool NearCoverageValidated;
+        [DataMember(Order = 23)] public bool InstancesValidated;
+        [DataMember(Order = 24)] public bool SceneValidated;
+        [DataMember(Order = 25)] public List<CapturedDeletion> Deletions = new List<CapturedDeletion>();
+
+        [DataMember(Order = 26)] public List<CapturedDeparture> Departures = new List<CapturedDeparture>();
 
         // Creates the versioned JSON payload after checking that every object has data.
         public byte[] Encode()

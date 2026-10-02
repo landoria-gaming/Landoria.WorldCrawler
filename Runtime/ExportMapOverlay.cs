@@ -28,7 +28,7 @@ namespace Landoria.WorldCrawler.Runtime
         private WorldIdentity _world;
         private string _configuredRoot, _directory, _warning;
         private long _profileId;
-        private int _radius, _revision, _readRevision;
+        private int _revision, _readRevision;
         private float _nextRead;
         private bool _disposed, _dataChanged;
 
@@ -87,25 +87,18 @@ namespace Landoria.WorldCrawler.Runtime
         {
             var live = ZNet.World;
             var id = Game.instance.GetPlayerProfile().GetPlayerID();
-            var radius = CrawlerConstants.LandmarkRadius;
             var root = CrawlerConstants.ExportRoot;
             if (_world != null && _world.Uid == live.m_uid && _world.Seed == live.m_seed
                 && _world.SeedText == live.m_seedName && _world.GenerationVersion == live.m_worldGenVersion
-                && _profileId == id && _configuredRoot == root && _radius == radius)
+                && _profileId == id && _configuredRoot == root)
             {
                 return;
             }
-            if (radius < 1 || radius > 1000)
-            {
-                throw new InvalidOperationException("Invalid export selection for the map overlay.");
-            }
             var world = GameContext.Identity();
-            var scope = "landmarks_r" + radius.ToString(CultureInfo.InvariantCulture);
-            var directory = Path.Combine(Path.GetFullPath(root), StoreValidation.DirectoryName(world, scope));
+            var directory = Path.Combine(Path.GetFullPath(root), StoreValidation.DirectoryName(world));
             _world = world;
             _profileId = id;
             _configuredRoot = root;
-            _radius = radius;
             _revision++;
             _directory = directory;
             _captured = Array.Empty<ExportMapOverlayRegion>();
@@ -127,7 +120,14 @@ namespace Landoria.WorldCrawler.Runtime
                     if (_readRevision == _revision)
                     {
                         ApplyRegions(data);
-                        _warning = null;
+                        if (data.Warning != null)
+                        {
+                            Warn(data.Warning);
+                        }
+                        else
+                        {
+                            _warning = null;
+                        }
                     }
                 }
                 catch (Exception error)
@@ -160,11 +160,9 @@ namespace Landoria.WorldCrawler.Runtime
             var root = _configuredRoot;
             var directory = _directory;
             var world = _world.Copy();
-            var id = _profileId.ToString(CultureInfo.InvariantCulture);
-            var radius = _radius;
             _readRevision = _revision;
             _nextRead = Time.realtimeSinceStartup + 5f;
-            _read = Task.Run(() => marker == null ? ExportMapOverlaySource.ReadProgress(directory, world, id, radius) :
+            _read = Task.Run(() => marker == null ? ExportMapOverlaySource.ReadProgress(directory, world) :
                 RestorationMapSource.Read(marker, root, directory, world));
         }
 

@@ -11,26 +11,14 @@ namespace Landoria.WorldCrawler.Runtime
         // Selects a fixed shortcut without intercepting text input or another mod's editor.
         public static int Action(ManualLogSource log)
         {
-            var restorePressed = ZInput.GetKeyDown(CrawlerConstants.RestoreKey);
-            var currentZone = ZInput.GetKey(CrawlerConstants.CurrentZoneModifier);
-            var alt = ZInput.GetKey(KeyCode.LeftAlt) || ZInput.GetKey(KeyCode.RightAlt);
-            var other = alt || OtherModifierHeld();
-            var index = restorePressed ? RestoreShortcutPolicy.Select(currentZone, other) :
-                ZInput.GetKeyDown(CrawlerConstants.ExportKey) ? (other ? -1 : currentZone ? 4 : 0) :
-                ZInput.GetKeyDown(CrawlerConstants.PrepareKey) ? 1 : -1;
-            if (!restorePressed && index < 0)
+            if (OtherModifierHeld() || ZInput.GetKey(KeyCode.LeftControl) ||
+                ZInput.GetKey(KeyCode.LeftAlt) || ZInput.GetKey(KeyCode.RightAlt) || BlockReason() != null)
             {
                 return -1;
             }
-            var blocked = BlockReason();
-            if (restorePressed)
-            {
-                log.LogInfo($"F10 input: LeftControl={currentZone}; Alt={alt}; otherModifier={other}; action={index}; blockedBy={blocked ?? "none"}.");
-            }
-            if (blocked != null || index < 0)
-            {
-                return -1;
-            }
+            var index = ZInput.GetKeyDown(CrawlerConstants.ExportKey) ? 0 :
+                ZInput.GetKeyDown(CrawlerConstants.PrepareKey) ? 1 :
+                ZInput.GetKeyDown(CrawlerConstants.RestoreKey) ? 2 : -1;
             return index;
         }
 

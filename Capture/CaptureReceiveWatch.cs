@@ -1,33 +1,16 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Capture
 {
-    // Tracks actual received objects for the active sector without treating all network traffic as loading.
+    // Shares accepted-change timing with one active sector validation.
     internal sealed class CaptureReceiveWatch : IDisposable
     {
         private static CaptureReceiveWatch _current;
-        private readonly int _x;
-        private readonly int _z;
-        private readonly HashSet<ZDOID> _seen = new HashSet<ZDOID>();
-        private readonly CaptureReceivePolicy _policy = new CaptureReceivePolicy();
-        internal float LastChange
-        {
-            get; private set;
-        }
-        internal string Error
-        {
-            get; private set;
-        }
+        private readonly int _x, _z;
+        internal float LastChange { get; private set; }
 
-        // Identifies persistent state whose revisions must stabilize before accepting a snapshot.
-        internal bool TracksUpdates(int hash)
-        {
-            return _policy.For(hash) == 2;
-        }
-
-        // Installs a single observation-only receiver for the current capture.
+        // Starts a local stability window, separate from any earlier committed snapshot.
         internal CaptureReceiveWatch(int x, int z)
         {
             if (_current != null)
@@ -40,44 +23,16 @@ namespace Landoria.WorldCrawler.Capture
             _current = this;
         }
 
-        // Contains observer failures so the mod cannot interrupt the game's packet processing.
-        internal static void Received(ZDO source)
+        // Updates only after classification and content deduplication, never for raw traffic.
+        internal static void Changed(int x, int z)
         {
-            var watch = _current;
-            if (watch == null)
+            if (_current != null && _current._x == x && _current._z == z)
             {
-                return;
-            }
-            try
-            {
-                watch.Observe(source);
-            }
-            catch (Exception error)
-            {
-                watch.Error = error.Message;
+                _current.LastChange = Time.realtimeSinceStartup;
             }
         }
 
-        // Resets stability for new objects and important state updates, not ticking fires or creatures.
-        private void Observe(ZDO source)
-        {
-            if (source == null || !source.IsValid() || !source.Persistent ||
-                !CaptureTransform.InZone(source.GetPosition(), _x, _z))
-            {
-                return;
-            }
-            var policy = _policy.For(source.GetPrefab());
-            if (policy == 0)
-            {
-                return;
-            }
-            if (_seen.Add(source.m_uid) || policy == 2)
-            {
-                LastChange = Time.realtimeSinceStartup;
-            }
-        }
-
-        // Removes only this session's receiver when a zone finishes, pauses or fails.
+        // Detaches the watch when validation succeeds or is cancelled.
         public void Dispose()
         {
             if (ReferenceEquals(_current, this))

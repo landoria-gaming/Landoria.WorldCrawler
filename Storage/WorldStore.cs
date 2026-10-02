@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Xml;
-using Landoria.WorldCrawler.Inventory;
 
 namespace Landoria.WorldCrawler.Storage
 {
@@ -73,38 +72,23 @@ namespace Landoria.WorldCrawler.Storage
             }
         }
 
-        // Initializes or expands a landmark crawl while retaining completed selected coordinates.
-        public void SelectLandmarks(LandmarkInventory inventory, float radius, string characterId, string characterName)
+        // Initializes a recording without changing legacy export folders or creating a route.
+        public void BeginRecording(string characterId, string characterName, string gameVersion)
         {
             EnsureOpen();
-            if (string.IsNullOrWhiteSpace(characterId))
+            if (Manifest.FormatVersion != 2)
             {
-                throw new ArgumentException("A stable source character identity is required.");
+                throw new NotSupportedException("This folder contains a legacy export; it is preserved read-only.");
             }
-            ValidateCharacter(characterId);
-            if (Manifest.InventoryInitialized && Manifest.Selection == null)
+            if (!Manifest.InventoryInitialized)
             {
-                throw new InvalidOperationException("Only landmark exports are supported; start a new export.");
+                Manifest.CharacterId = characterId;
+                Manifest.CharacterName = characterName ?? string.Empty;
             }
-            var selection = LandmarkSelectionBuilder.Merge(Manifest.Selection, inventory, radius);
-            var selected = LandmarkZoneInventory.Build(LandmarkSelectionBuilder.Inventory(selection), radius);
-            var zones = LandmarkSelectionBuilder.Zones(Manifest, selected);
-            Manifest.CharacterId = characterId;
-            Manifest.CharacterName = characterName ?? string.Empty;
-            Manifest.Selection = selection;
-            Manifest.Zones = zones;
+            Manifest.GameVersion = gameVersion;
             Manifest.InventoryInitialized = true;
+            Manifest.CrawlState = "recording";
             Save();
-        }
-
-        // Requires the same character so another minimap cannot replace the frozen route.
-        public void ValidateCharacter(string characterId)
-        {
-            EnsureOpen();
-            if (Manifest.InventoryInitialized && !string.Equals(Manifest.CharacterId, characterId, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("This crawl belongs to another character; its initial inventory is preserved.");
-            }
         }
 
         // Commits progress after validating world identity and zone filenames.
@@ -120,12 +104,14 @@ namespace Landoria.WorldCrawler.Storage
         public void WriteZone(int x, int z, byte[] payload, string captureVersion, int objects)
         {
             EnsureOpen();
-            var entry = FindZone(x, z);
+            var entry = Manifest.Zones.SingleOrDefault(zone => zone.X == x && zone.Z == z)
+                ?? new ZoneEntry { X = x, Z = z, Origin = ExplorationOrigin.Received };
             if (payload == null || payload.Length > AtomicJson.MaximumFileLength / 2 ||
                 objects < 0 || string.IsNullOrEmpty(captureVersion))
             {
                 throw new ArgumentException("A bounded payload, version, and valid object count are required.");
             }
+            payload = MergeDeletions(x, z, payload);
             PayloadValidator?.Invoke(x, z, payload, captureVersion, objects);
             var envelope = new ZoneEnvelope
             {
@@ -140,8 +126,40 @@ namespace Landoria.WorldCrawler.Storage
                 PayloadBase64 = Convert.ToBase64String(payload)
             };
             AtomicJson.Write(ZonePath(x, z), envelope, value => ValidateEnvelope(value, x, z));
+            if (!Manifest.Zones.Contains(entry))
+            {
+                Manifest.Zones.Add(entry);
+            }
             MarkCaptured(entry, envelope);
             Save();
+        }
+
+        // Carries confirmed removals forward when a later complete snapshot replaces the same sector.
+        private byte[] MergeDeletions(int x, int z, byte[] payload)
+        {
+            var snapshot = Capture.ZoneSnapshot.Decode(payload);
+            if (snapshot.PayloadVersion < 2 || !File.Exists(ZonePath(x, z)))
+            {
+                return payload;
+            }
+            try
+            {
+                var previous = Capture.ZoneSnapshot.Decode(ValidateEnvelope(
+                    AtomicJson.Read<ZoneEnvelope>(ZonePath(x, z)), x, z));
+                snapshot.Departures = snapshot.Departures.Concat(previous.Departures ??
+                    new System.Collections.Generic.List<Capture.CapturedDeparture>())
+                    .GroupBy(item => item.SourceUser + ":" + item.SourceId)
+                    .Select(group => group.OrderByDescending(item => item.ObservedUtcTicks).First()).ToList();
+                snapshot.Deletions = snapshot.Deletions.Concat(previous.Deletions ??
+                    new System.Collections.Generic.List<Capture.CapturedDeletion>())
+                    .GroupBy(item => item.SourceUser + ":" + item.SourceId)
+                    .Select(group => group.OrderByDescending(item => item.ObservedUtcTicks).First()).ToList();
+            }
+            catch (Exception error) when (IsInvalidFile(error))
+            {
+                throw new InvalidDataException("Previous deletion evidence cannot be read; old file preserved.", error);
+            }
+            return snapshot.Encode();
         }
 
         // Reads verified payload bytes for an inventoried zone.
@@ -156,6 +174,7 @@ namespace Landoria.WorldCrawler.Storage
         public void Reconcile()
         {
             EnsureOpen();
+            RecoverOrphanZones();
             foreach (var zone in Manifest.Zones)
             {
                 var path = ZonePath(zone.X, zone.Z);
@@ -184,6 +203,43 @@ namespace Landoria.WorldCrawler.Storage
             Save();
         }
 
+        // Recovers atomic files committed just before a crash interrupted manifest checkpointing.
+        private void RecoverOrphanZones()
+        {
+            if (Manifest.FormatVersion != 2)
+            {
+                return;
+            }
+            var known = new System.Collections.Generic.HashSet<string>(
+                Manifest.Zones.Select(zone => StoreValidation.ZoneFileName(zone.X, zone.Z)), StringComparer.OrdinalIgnoreCase);
+            foreach (var path in Directory.EnumerateFiles(DirectoryPath, "zone_*.worldcrawler.json"))
+            {
+                if (known.Contains(Path.GetFileName(path)))
+                {
+                    continue;
+                }
+                try
+                {
+                    var envelope = AtomicJson.Read<ZoneEnvelope>(path);
+                    if (Path.GetFileName(path) != StoreValidation.ZoneFileName(envelope.X, envelope.Z))
+                    {
+                        continue;
+                    }
+                    ValidateEnvelope(envelope, envelope.X, envelope.Z);
+                    if (!Manifest.Zones.Any(zone => zone.X == envelope.X && zone.Z == envelope.Z))
+                    {
+                        var zone = new ZoneEntry { X = envelope.X, Z = envelope.Z, Origin = ExplorationOrigin.Received };
+                        MarkCaptured(zone, envelope);
+                        Manifest.Zones.Add(zone);
+                    }
+                }
+                catch (Exception error) when (IsInvalidFile(error))
+                {
+                    RecoveryNotice = "Invalid zone files were preserved and excluded: " + error.Message;
+                }
+            }
+        }
+
         // Releases the exclusive directory lock without deleting captured data.
         public void Dispose()
         {
@@ -202,7 +258,7 @@ namespace Landoria.WorldCrawler.Storage
                 if (File.Exists(ManifestPath + ".previous"))
                 {
                     Manifest = ReadManifest(ManifestPath + ".previous");
-                    RecoveryNotice = "The primary manifest was missing; the previous checkpoint was recovered. Its return point may be older.";
+                    RecoveryNotice = "The primary manifest was missing; the previous checkpoint was recovered. ";
                     return;
                 }
                 Manifest = new WorldManifest { World = identity.Copy(), CreatedUtc = DateTime.UtcNow.ToString("o") };
@@ -217,7 +273,7 @@ namespace Landoria.WorldCrawler.Storage
                 Manifest = ReadManifest(ManifestPath + ".previous");
                 var evidence = ManifestPath + ".invalid-" + Guid.NewGuid().ToString("N");
                 File.Move(ManifestPath, evidence);
-                RecoveryNotice = "The primary manifest was corrupt and preserved; the previous checkpoint was recovered. Its return point may be older.";
+                RecoveryNotice = "The primary manifest was corrupt and preserved; the previous checkpoint was recovered. ";
             }
             Manifest.World.Name = identity.Name;
         }
@@ -230,13 +286,13 @@ namespace Landoria.WorldCrawler.Storage
             return manifest;
         }
 
-        // Locates only zones that were part of the original exploration inventory.
+        // Locates only committed recording sectors.
         private ZoneEntry FindZone(int x, int z)
         {
             var entry = Manifest.Zones.SingleOrDefault(zone => zone.X == x && zone.Z == z);
             if (entry == null)
             {
-                throw new InvalidOperationException("This zone is outside the landmark inventory.");
+                throw new InvalidOperationException("This zone is not in the committed recording.");
             }
             return entry;
         }

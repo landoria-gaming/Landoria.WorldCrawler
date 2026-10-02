@@ -9,11 +9,10 @@ using UnityEngine;
 
 namespace Landoria.WorldCrawler.Restoration
 {
-    // Owns the local target, read-only export and durable return point for one import session.
+    // Owns the local target, read-only export and journal for one import session.
     internal sealed class RestoreSession : IDisposable
     {
         private readonly Player _player;
-        private readonly bool _manual;
         private CharacterCheatMarker _characterMarker;
         private Task<ExportArchive> _loading;
         private readonly PreparedWorld _marker;
@@ -40,13 +39,12 @@ namespace Landoria.WorldCrawler.Restoration
         public Task ReleaseTask { get; private set; } = Task.CompletedTask;
 
         // Validates local ownership before opening a target-bound recovery journal.
-        public RestoreSession(RestoreSelection restoration, bool manual = false)
+        public RestoreSession(RestoreSelection restoration)
         {
             LatestWorldApi.RequireCurrent();
             LegacyItemData.Validate();
             GeneratedObjectMatch.Validate();
             _player = Player.m_localPlayer;
-            _manual = manual;
             World = GameContext.Identity();
             Check();
             WorldDirectory = LatestWorldApi.DirectoryFor(ZNet.World);
@@ -81,7 +79,7 @@ namespace Landoria.WorldCrawler.Restoration
         // Refuses remote servers, other players, cloud saves and session changes on every frame.
         public void Check()
         {
-            if (!GameContext.Ready(_manual) || !GameContext.SameSession(World, _player) ||
+            if (!GameContext.Ready(true) || !GameContext.SameSession(World, _player) ||
                 !ZNet.instance.IsServer() || ZNet.instance.IsDedicated() || ZNet.instance.GetPeers().Count != 0 ||
                 ZNet.World.m_fileSource != LatestWorldApi.LocalSource)
             {
@@ -127,26 +125,11 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return;
             }
-            Flight = new FlightController { Speed = speed, Manual = _manual };
+            Flight = new FlightController { Speed = speed };
             Flight.Begin(_player, _player.transform.position, _player.transform.rotation);
-            Journal.State.ReturnPending = false;
             Journal.State.Status = "restoring";
             Journal.State.Error = null;
             Journal.Save();
-        }
-
-        // Holds horizontal position and rises above terrain changed by an active restoration.
-        public void Hold(float deltaTime)
-        {
-            if (Flight != null && Flight.Active)
-            {
-                var position = _player.transform.position;
-                if (RestoreProtection.Active)
-                {
-                    position.y = Mathf.Max(position.y, SurfaceHeight.Read(position) + CrawlerConstants.RestoreClearance);
-                }
-                Flight.Tick(position, deltaTime);
-            }
         }
 
         // Retains recoverable progress after failures without claiming an emergency return succeeded.

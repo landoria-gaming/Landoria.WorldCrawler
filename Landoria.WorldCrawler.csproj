@@ -81,9 +81,4 @@
     <Content Include="manifest.json" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <Target Name="AuditExport" DependsOnTargets="ResolveReferences">
-    <Error Condition="'$(AuditAssembly)' == '' or !Exists('$(AuditAssembly)')"
-           Text="Set AuditAssembly to the already built universal DLL." />
-    <HarmonyValidatorTask AssemblyPath="$(AuditAssembly)" References="@(ReferencePath)" />
-  </Target>
 </Project>

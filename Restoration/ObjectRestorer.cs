@@ -9,7 +9,7 @@ using UnityEngine;
 namespace Landoria.WorldCrawler.Restoration
 {
     // Restores persistent non-creature data using durable source identity tags and exact matching.
-    internal sealed class ObjectRestorer
+    internal sealed partial class ObjectRestorer
     {
         internal const string IdentityTag = "WorldCrawler.source";
         private readonly string _fingerprint;
@@ -19,6 +19,7 @@ namespace Landoria.WorldCrawler.Restoration
         private readonly Action<string> _warning;
         private readonly List<ZDO> _zone = new List<ZDO>();
         private readonly HashSet<ZDOID> _claimed = new HashSet<ZDOID>();
+        private readonly HashSet<ZDOID> _removed = new HashSet<ZDOID>();
         private readonly CaptureApi _api = new CaptureApi();
         private readonly GeneratedCleanup _cleanup;
         private static readonly MethodInfo RemoveView = typeof(ZNetScene).GetMethod("OnZDODestroyed",
@@ -197,6 +198,21 @@ namespace Landoria.WorldCrawler.Restoration
             return _identities.Resolve(tag);
         }
 
+        // Removes only our tagged copy of an explicitly deleted source object, never an unrelated match.
+        public void ApplyDeletion(CapturedDeletion source)
+        {
+            var key = source.SourceUser + ":" + source.SourceId.ToString(CultureInfo.InvariantCulture);
+            var target = ResolveKey(key);
+            if (target == null)
+            {
+                return;
+            }
+            EnsureSafe(target, source.PrefabHash);
+            _removed.Add(target.m_uid);
+            target.SetOwner(ZDOMan.GetSessionID());
+            ZDOMan.instance.DestroyZDO(target);
+        }
+
         // Restores connections only to other proven imported objects, never to source IDs by accident.
         public bool Connect(CapturedObject source)
         {
@@ -217,7 +233,12 @@ namespace Landoria.WorldCrawler.Restoration
             }
             EnsureSafe(target, source.PrefabHash);
             EnsureSafe(endpoint, mapped.Prefab);
-            target.SetConnection((ZDOExtraData.ConnectionType)source.ConnectionType, endpoint.m_uid);
+            var connection = target.GetConnection();
+            if (connection == null || connection.m_target != endpoint.m_uid || (int)connection.m_type != source.ConnectionType)
+            {
+                target.SetConnection((ZDOExtraData.ConnectionType)source.ConnectionType, endpoint.m_uid);
+                Landoria.WorldCrawler.Flight.ReceiveMotionGate.Worked();
+            }
             return true;
         }
 

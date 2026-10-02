@@ -15,6 +15,7 @@ namespace Landoria.WorldCrawler.Restoration
         private readonly CaptureApi _api = new CaptureApi();
         private readonly HashSet<string> _reported = new HashSet<string>();
         private readonly HashSet<int> _vegetation;
+        private readonly HashSet<ZDOID> _destroyed = new HashSet<ZDOID>();
         private static readonly MethodInfo RemoveView = typeof(ZNetScene).GetMethod("OnZDODestroyed",
             BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(ZDO) }, null);
 
@@ -60,9 +61,17 @@ namespace Landoria.WorldCrawler.Restoration
             Report(plan, x, z);
             foreach (var target in plan)
             {
+                _destroyed.Add(target.m_uid);
                 Destroy(target);
             }
             return plan.Count;
+        }
+
+        // Waits for explicit native destruction to finish before a zone can be checkpointed.
+        internal bool DeletionsPending()
+        {
+            _destroyed.RemoveWhere(id => ZDOMan.instance.GetZDO(id) == null);
+            return _destroyed.Count != 0;
         }
 
         // Protects actors, player-owned data, imported objects and untagged source-position matches.

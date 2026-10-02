@@ -17,39 +17,36 @@ Sometimes, a world is simply too good to lose:
 
 | Key | Action |
 | --- | --- |
-| **F8** | Start, stop, or resume automatic export. |
-| **Left Ctrl+F8** | Start or stop manual export; recapture visited selected zones. |
-| **F9** | At the main menu, prepare a local world from the latest export. |
-| **F10** | Start, stop, or resume automatic restoration of unfinished zones. |
-| **Left Ctrl+F10** | Start or stop manual restoration; redo visited exported zones. |
-| **Movement keys** | Fly horizontally in manual mode. |
-| **Jump / Crouch** | Fly up / down in manual mode. |
-| **Alt + map click** | Teleport when idle or in manual mode. |
+| **F8** | Start or stop manual recording. |
+| **F9** | At the main menu, prepare a local world from the latest recording. |
+| **F10** | Start or stop manual restoration. |
+| **Movement keys / Jump / Crouch** | Fly horizontally / up / down at sprint ×4. |
+| **Alt + map click** | Teleport when data work is idle. |
 
 ## How to use
 
-### 1. Export the server world
+### 1. Record the server world
 
-Join the source world, then choose:
-
-- **Automatic — F8:** your character flies between the selected areas to capture their data.
-- **Manual — Left Ctrl+F8:** you fly or teleport to selected areas to capture them again, even if already saved.
-- Areas within **80 m** of discovered portals and landmarks are selected. Add a personal **Home** pin to include a missing revealed area; plain dots and death pins are ignored.
-- Press the same shortcut to stop or resume. Zone files are replaced safely, without duplicates.
+- Join the source world and press **F8**. Fly wherever you want to copy.
+- Nearby loaded zones are recorded, including their buildings, terrain and inventories. No pins or route planning are needed.
+- Movement pauses for useful data and validation, then resumes after two quiet seconds. Your character is protected from damage, enemies and cold.
+- **Green rectangles** show saved zones. Incomplete observations are never exported.
+- Press **F8** to stop in place. Start again later to record more or update visited zones without duplicates.
+- Keep the whole recording folder in `BepInEx/config/WorldCrawler/worlds`.
+- Recording supports **0.221.12 and 1.0.x**. The next two steps require **1.0.x**.
 
 ### 2. Create the local world
 
-At the main menu, press **F9**. Confirm **Yes** to create or reuse a world from the latest export, with the same name, seed, and UID.
+At the main menu, press **F9** and confirm **Yes**. The latest recording supplies the world's name, seed and UID. Unrelated worlds are never overwritten.
 
-### 3. Restore the exported areas
+### 3. Restore the recorded areas
 
-Enter the new local world, then choose:
-
-- **Automatic — F10:** your character flies through unfinished zones to restore their data.
-- **Manual — Left Ctrl+F10:** you fly or teleport to exported zones to restore them, even if already restored.
-- Press the same shortcut to stop or resume.
-- Both modes share progress and reuse objects. Each zone is imported, cleaned, checked, and saved before being marked complete.
-- Cleanup keeps creatures, player-owned objects, and types never found anywhere in the export. A safety backup is kept.
+- Enter the new local world and press **F10**. Fly where you want to restore it.
+- Nearby recorded zones are restored, cleaned and checked. Revisiting a zone safely reapplies it without duplicates.
+- **Amber** means a recorded zone still needs restoration or saving; **green** means restored and saved.
+- The world saves every **two minutes** when changes exist, at the next safe boundary. Press **F10** to stop and wait for the final save.
+- Movement pauses during actual work, not while waiting for the next scheduled save. No automatic travel or return to the start.
+- Safety backups are kept. Cleanup protects creatures and unrelated player builds, and never removes types absent from the recording.
 
 ## Screenshot
 

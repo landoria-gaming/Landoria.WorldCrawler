@@ -61,7 +61,7 @@ namespace Landoria.WorldCrawler.Storage
             {
                 throw new InvalidDataException("Invalid World Crawler manifest.");
             }
-            if (manifest.FormatVersion != 1)
+            if (manifest.FormatVersion != 1 && manifest.FormatVersion != 2)
             {
                 throw new NotSupportedException("Unsupported World Crawler manifest version.");
             }
@@ -73,16 +73,6 @@ namespace Landoria.WorldCrawler.Storage
             {
                 throw new InvalidDataException("The inventory has no source character identity.");
             }
-            if (manifest.InventoryInitialized && manifest.Selection == null)
-            {
-                throw new NotSupportedException("Only landmark exports are supported. Start a new landmark export.");
-            }
-            if (!manifest.InventoryInitialized && (manifest.Zones.Count != 0 || manifest.Selection != null))
-            {
-                throw new InvalidDataException("An uninitialized inventory cannot contain zones.");
-            }
-            ValidateProgress(manifest);
-            LandmarkSelectionBuilder.Validate(manifest.Selection);
             var coordinates = new HashSet<long>();
             foreach (var zone in manifest.Zones)
             {
@@ -127,7 +117,7 @@ namespace Landoria.WorldCrawler.Storage
         // Validates each inventory record without resolving untrusted file paths.
         private static void ValidateEntry(ZoneEntry zone)
         {
-            if (zone == null || zone.Origin != ExplorationOrigin.PointOfInterest ||
+            if (zone == null || (zone.Origin != ExplorationOrigin.PointOfInterest && zone.Origin != ExplorationOrigin.Received) ||
                 !new[] { "pending", "loaded", "captured", "skipped", "failed" }.Contains(zone.Status))
             {
                 throw new InvalidDataException("An inventory entry has invalid origin or status.");
@@ -138,19 +128,5 @@ namespace Landoria.WorldCrawler.Storage
             }
         }
 
-        // Ensures saved counters and return checkpoints can be interpreted safely.
-        private static void ValidateProgress(WorldManifest manifest)
-        {
-            if (manifest.ReturnPending && (!manifest.InventoryInitialized || string.IsNullOrEmpty(manifest.CharacterId) ||
-                string.IsNullOrEmpty(manifest.ReturnCharacterId) ||
-                manifest.ReturnPosition == null || manifest.ReturnPosition.Length != 3 ||
-                manifest.ReturnRotation == null || manifest.ReturnRotation.Length != 4 ||
-                manifest.ReturnPosition.Concat(manifest.ReturnRotation).Any(value => float.IsNaN(value) || float.IsInfinity(value)) ||
-                !manifest.ReturnRotation.Any(value => value != 0) ||
-                manifest.ReturnCharacterId != manifest.CharacterId))
-            {
-                throw new InvalidDataException("The saved return point is incomplete or belongs to another character.");
-            }
-        }
     }
 }

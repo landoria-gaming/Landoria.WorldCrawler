@@ -7,6 +7,3 @@
 *.pdb
 local-reference/
 exports/
-# Keep local verification projects out of this repository if copied back accidentally.
-/tests/
-/tools/BindingAudit/

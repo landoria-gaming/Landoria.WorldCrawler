@@ -1,9 +1,8 @@
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Identifies the current resumable export operation.
+    // Separates manual observations from their validated atomic commits.
     internal enum CrawlPhase
     {
-        Idle, Preparing, Testing, ManualWaiting, Travelling, Capturing, Writing,
-        Landing, Paused, Completed, Faulted
+        Idle, Preparing, Waiting, Capturing, Writing, Stopped
     }
 }

@@ -9,8 +9,7 @@ namespace Landoria.WorldCrawler.Capture
         // Notifies the active capture only after the complete object packet has been applied.
         private static void Postfix(ZDO __instance)
         {
-            CaptureReceiveWatch.Received(__instance);
-            Flight.ReceiveMotionGate.Received(__instance);
+            RecordingObserver.Received(__instance);
         }
     }
 }

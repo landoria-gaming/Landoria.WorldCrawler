@@ -1,76 +1,146 @@
-using System.Linq;
+using System;
+using System.Threading.Tasks;
 using Landoria.WorldCrawler.Capture;
 using Landoria.WorldCrawler.Flight;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Recaptures selected zones on manual arrival without replacing good files with partial observations.
+    // Validates and commits one received sector at a time, without directing player movement.
     internal sealed partial class CrawlController
     {
-        private bool _manual;
-        private string _lastManualZone;
-        private readonly CaptureApi _manualSectors = new CaptureApi();
-
-        // Exposes the active export's committed geometry for both automatic and manual modes.
-        internal ExportMapOverlayData MapProgress()
+        // Handles explicit teleports and invalidates observations if an external move leaves near coverage.
+        private bool Transit()
         {
-            return _store == null ? null : ProgressMapSnapshot.Export(_store.Manifest,
-                _phase == CrawlPhase.Capturing || _phase == CrawlPhase.Writing ? _zone : null);
+            var transit = _flight?.WaitForManualTeleport() == true || _player.IsTeleporting();
+            _observer.Scope.Refresh(_player.transform.position);
+            if (_capture != null && (transit || !_observer.Scope.Contains(_zone.X, _zone.Z)))
+            {
+                _capture.Dispose();
+                _capture = null;
+                _zone = null;
+                _stall = null;
+                _phase = CrawlPhase.Waiting;
+                Say("External travel interrupted validation; the previous saved file is unchanged.");
+            }
+            return transit && _phase != CrawlPhase.Writing;
         }
 
-        // Uses the same receive pause and safe-flight protection while leaving routing to the user.
-        private void BeginManualExport()
+        // Dispatches only preparation, passive observation, validation and disk commits.
+        private void Advance()
         {
-            _motionGate = new ReceiveMotionGate(_player, CrawlerConstants.ZoneTimeout);
-            _phase = CrawlPhase.ManualWaiting;
-            Say("Manual export active. Move to selected zones; LeftCtrl+F8 stops. Saved zones will be replaced after a complete capture.");
+            switch (_phase)
+            {
+                case CrawlPhase.Preparing:
+                    Prepare();
+                    break;
+                case CrawlPhase.Waiting:
+                    BeginCapture();
+                    break;
+                case CrawlPhase.Capturing:
+                    Capture();
+                    break;
+                case CrawlPhase.Writing:
+                    FinishWrite();
+                    break;
+            }
         }
 
-        // Recaptures the current selected sector once per visit, even when it already has a file.
-        private void WaitForManualExport()
+        // Takes exclusive store ownership after validation, leaving old export folders untouched.
+        private void Prepare()
         {
-            RefreshPersonalPins();
-            _manualSectors.GetZone(_player.transform.position, out var x, out var z);
-            var key = x + ":" + z;
-            if (_lastManualZone == key)
+            if (!_preparation.TryTake(out var store))
             {
                 return;
             }
-            _zone = _store.Manifest.Zones.SingleOrDefault(v => v.X == x && v.Z == z && v.Status != "skipped");
+            _store = store;
+            _preparation.Dispose();
+            _preparation = null;
+            _map = ProgressMapSnapshot.Export(store.Manifest, null);
+            _phase = CrawlPhase.Waiting;
+            if (!string.IsNullOrEmpty(store.RecoveryNotice))
+            {
+                _log.LogWarning(store.RecoveryNotice);
+            }
+            Say("Recording active. Movement is held only while useful data is being captured.");
+        }
+
+        // Begins dirty near-zone work, including terrain still loading on arrival.
+        private void BeginCapture()
+        {
+            if (Time.unscaledTime < _retryAt)
+            {
+                return;
+            }
+            _zone = _observer.Next(_player.transform.position);
             if (_zone == null)
             {
                 return;
             }
-            _lastManualZone = key;
-            StartCapture();
+            _flight.LockMovement();
+            _capture = new ZoneCaptureSession(_zone.X, _zone.Z);
+            _phase = CrawlPhase.Capturing;
         }
 
-        // Waits through external teleports and discards only unfinished in-memory observations.
-        private bool ManualExportTransit()
+        // Never converts a timeout or incomplete observation into a saved sector.
+        private void Capture()
         {
-            if (!_manual)
+            try
             {
-                return false;
-            }
-            var teleport = _flight?.WaitForManualTeleport() == true || _player.IsTeleporting();
-            if (_phase == CrawlPhase.Capturing && (teleport || LeftCaptureZone()))
-            {
-                _capture?.Dispose();
+                if (_observer.HasQueuedObjects || !_capture.Step())
+                {
+                    return;
+                }
+                var result = _capture.Result;
+                result.Deletions = _observer.Deletions(_zone);
+                result.Departures = _observer.Departures(_zone);
+                _writeRevision = _observer.Revision(_zone);
+                _capture.Dispose();
                 _capture = null;
-                _zone = null;
-                _lastManualZone = null;
-                _phase = CrawlPhase.ManualWaiting;
-                Say("Manual travel detected; unfinished observation discarded. Existing zone file preserved.");
+                var x = _zone.X;
+                var z = _zone.Z;
+                var version = GameContext.GameVersion;
+                var store = _store;
+                _write = Task.Run(() => store.WriteZone(x, z, result.Encode(), version, result.Objects.Count));
+                _phase = CrawlPhase.Writing;
             }
-            return teleport && _phase != CrawlPhase.Writing;
+            catch (TimeoutException error)
+            {
+                Stall(error.Message);
+            }
         }
 
-        // Prevents unloading a sector from being mistaken for proof that its objects disappeared.
-        private bool LeftCaptureZone()
+        // Keeps protection and the movement lock while offering F8 cancellation of stalled work.
+        private void Stall(string reason)
         {
-            _manualSectors.GetZone(_player.transform.position, out var x, out var z);
-            return _zone != null && (_zone.X != x || _zone.Z != z);
+            _stall = reason + " F8 stops without exporting this zone.";
+            _log.LogWarning(_stall);
+            _capture.Dispose();
+            _capture = null;
+            _retryAt = Time.unscaledTime + 2f;
+            _phase = CrawlPhase.Waiting;
+        }
+
+        // Accepts exactly the written revision; changes received during the write stay pending.
+        private void FinishWrite()
+        {
+            if (!_write.IsCompleted)
+            {
+                return;
+            }
+            var write = _write;
+            _write = null;
+            write.GetAwaiter().GetResult();
+            _observer.Committed(_zone, _writeRevision);
+            _map = ProgressMapSnapshot.Export(_store.Manifest, null);
+            _log.LogInfo("Recorded zone " + _zone.X + ":" + _zone.Z + ".");
+            _zone = null;
+            _stall = null;
+            _phase = CrawlPhase.Waiting;
+            if (_stop)
+            {
+                Stop();
+            }
         }
     }
 }

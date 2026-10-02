@@ -23,8 +23,8 @@ namespace Landoria.WorldCrawler.Capture
         private List<CapturedObject> _sample = new List<CapturedObject>();
         private List<string> _exclusions = new List<string>();
         private List<string> _sceneExclusions = new List<string>();
-        private Dictionary<string, uint> _shape = new Dictionary<string, uint>();
-        private Dictionary<string, uint> _previousShape;
+        private Dictionary<string, string> _shape = new Dictionary<string, string>();
+        private Dictionary<string, string> _previousShape;
         private SceneCaptureCursor _scene;
         private List<CapturedSceneNode> _sceneNodes;
         private int _index = -1;
@@ -100,10 +100,6 @@ namespace Landoria.WorldCrawler.Capture
         // Requires a real local terrain tile and completed pending terrain rebuilds.
         private bool Ready()
         {
-            if (_receiver.Error != null)
-            {
-                throw new InvalidOperationException("Capture receiver failed: " + _receiver.Error);
-            }
             if (ZNet.instance == null || ZNet.GetConnectionStatus() != ZNet.ConnectionStatus.Connected ||
                 ZNet.instance.HasBadConnection())
             {
@@ -140,7 +136,7 @@ namespace Landoria.WorldCrawler.Capture
             if (Time.realtimeSinceStartup >= _nextLoadCheck)
             {
                 _nextLoadCheck = Time.realtimeSinceStartup + 0.25f;
-                _areaReady = ZNetScene.instance.IsAreaReady(_center);
+                _areaReady = NearZoneScope.Ready(_x, _z);
                 ZNet.instance.GetNetStats(out _, out _, out var ping, out _, out _);
                 _networkQuiet = CaptureStability.QuietSeconds(ping);
             }
@@ -170,7 +166,7 @@ namespace Landoria.WorldCrawler.Capture
             _api.FindObjects(_center, _candidates);
             _sample = new List<CapturedObject>();
             _exclusions = new List<string>();
-            _shape = new Dictionary<string, uint>(StringComparer.Ordinal);
+            _shape = new Dictionary<string, string>(StringComparer.Ordinal);
             _locationRoots.Clear();
             _pendingViews = 0;
             _index = 0;
@@ -207,9 +203,8 @@ namespace Landoria.WorldCrawler.Capture
                 return;
             }
             var item = _reader.Read(source, _x, _z);
-            Landoria.WorldCrawler.Flight.ReceiveMotionGate.Worked();
             var key = item.SourceUser + ":" + item.SourceId + ":" + item.PrefabHash;
-            _shape.Add(key, _receiver.TracksUpdates(item.PrefabHash) ? item.DataRevision : 0u);
+            _shape.Add(key, ObservationFingerprint.Read(source));
             _sample.Add(item);
             var instance = ZNetScene.instance.FindInstance(source);
             if (instance == null)
@@ -280,7 +275,7 @@ namespace Landoria.WorldCrawler.Capture
             if (_verifiedScene)
             {
                 Finish();
-                return true;
+                return Result != null;
             }
             BeginScene();
             return false;
@@ -289,7 +284,14 @@ namespace Landoria.WorldCrawler.Capture
         // Starts a layout audit of the loaded zone and every observed location proxy.
         private void BeginScene()
         {
-            _scene = new SceneCaptureCursor(_api.GetZoneRoot(_center));
+            var root = _api.GetZoneRoot(_center);
+            if (root == null)
+            {
+                ResetObservation();
+                Status = "Waiting for the loaded zone scene.";
+                return;
+            }
+            _scene = new SceneCaptureCursor(root);
             foreach (var location in _locationRoots)
             {
                 _scene.AddRoot(location.Value, location.Key);
@@ -321,8 +323,19 @@ namespace Landoria.WorldCrawler.Capture
             var interiorObjects = _sample.Count(item => Math.Abs(item.Position[1]) >= 1000f);
             if (dungeonExpected && interiorObjects == 0)
             {
-                throw new InvalidOperationException("A dungeon entrance was loaded but its interior objects were not received; zone not accepted.");
+                Status = "Waiting for dungeon interior objects; F8 stops without accepting this zone.";
+                return;
             }
+            CreateResult(dungeonExpected, interiorObjects);
+            Result.SetExclusionCounts(_exclusions.Concat(_sceneExclusions));
+            Result.BuildSummaries();
+            Result.Validate();
+            Status = "Stable client observation recorded: " + Result.Objects.Count + " persistent objects.";
+        }
+
+        // Copies the locally validated scene and network evidence into the new snapshot format.
+        private void CreateResult(bool dungeonExpected, int interiorObjects)
+        {
             Result = new ZoneSnapshot
             {
                 ZoneX = _x,
@@ -338,16 +351,15 @@ namespace Landoria.WorldCrawler.Capture
                 DungeonExpected = dungeonExpected,
                 DungeonEvidenceComplete = !dungeonExpected || interiorObjects > 0,
                 InteriorObjectCount = interiorObjects,
-                NaturalAbsenceComplete = true
+                NaturalAbsenceComplete = _verifiedScene && _pendingViews == 0 && _sceneNodes != null,
+                NearCoverageValidated = true,
+                InstancesValidated = _pendingViews == 0,
+                SceneValidated = _verifiedScene && _sceneNodes != null
             };
-            Result.SetExclusionCounts(_exclusions.Concat(_sceneExclusions));
-            Result.BuildSummaries();
-            Result.Validate();
-            Status = "Stable client observation recorded: " + Result.Objects.Count + " persistent objects.";
         }
 
         // Compares exact identifiers instead of relying on a possibly colliding aggregate hash.
-        private static bool SameShape(Dictionary<string, uint> current, Dictionary<string, uint> previous)
+        private static bool SameShape(Dictionary<string, string> current, Dictionary<string, string> previous)
         {
             if (previous == null || current.Count != previous.Count)
             {
@@ -355,7 +367,7 @@ namespace Landoria.WorldCrawler.Capture
             }
             foreach (var item in current)
             {
-                uint value;
+                string value;
                 if (!previous.TryGetValue(item.Key, out value) || value != item.Value)
                 {
                     return false;

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using Landoria.WorldCrawler.Restoration;
 using Landoria.WorldCrawler.Storage;
 
@@ -12,6 +13,7 @@ namespace Landoria.WorldCrawler.Runtime
         {
             var marker = AtomicJson.Read<PreparedWorld>(markerPath);
             marker.Validate(world, marker.ExportFingerprint);
+            export = ExportSourceResolver.Resolve(marker);
             var manifest = AtomicJson.Read<WorldManifest>(Path.Combine(export, "manifest.json"));
             StoreValidation.Manifest(manifest, world);
             var path = Path.Combine(root, "_restorations", marker.Token, "restore.json");
@@ -21,8 +23,13 @@ namespace Landoria.WorldCrawler.Runtime
             {
                 throw new InvalidDataException("The import map journal belongs to another world.");
             }
-            return ProgressMapSnapshot.Restore(manifest.Zones.FindAll(v => v.Status == "captured"),
-                state?.Completed ?? new System.Collections.Generic.List<string>());
+            var zones = CommittedMapFiles.Read(export, manifest, out var warning);
+            var saved = zones.Where(v => state?.Completed.Contains(v.X + ":" + v.Z) == true &&
+                state.AcceptedZones != null && state.AcceptedZones.TryGetValue(v.X + ":" + v.Z, out var signature) &&
+                signature == v.CaptureVersion + ":" + v.ObjectCount + ":" + v.Checksum);
+            var result = ProgressMapSnapshot.Restore(zones, saved.Select(v => v.X + ":" + v.Z));
+            result.Warning = warning;
+            return result;
         }
     }
 }

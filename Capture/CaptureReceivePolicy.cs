@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Landoria.WorldCrawler.Capture
 {
-    // Filters irrelevant fauna and distinguishes ticking objects from meaningful state updates.
+    // Filters fauna before state comparison; all included object types use content fingerprints.
     internal sealed class CaptureReceivePolicy
     {
         private readonly Dictionary<int, int> _policies = new Dictionary<int, int>();
@@ -21,14 +21,6 @@ namespace Landoria.WorldCrawler.Capture
                 throw new InvalidOperationException("Received an unknown prefab: " + hash);
             }
             policy = CaptureExclusionPolicy.Classify(prefab) != null ? 0 : 1;
-            if (policy != 0 && (prefab.GetComponent<Container>() != null || prefab.GetComponent<Sign>() != null ||
-                prefab.GetComponent<ItemStand>() != null || prefab.GetComponent<ArmorStand>() != null ||
-                prefab.GetComponent<TerrainComp>() != null || prefab.GetComponent<LocationProxy>() != null ||
-                prefab.GetComponent<DungeonGenerator>() != null || prefab.GetComponent<MineRock>() != null ||
-                prefab.GetComponent<MineRock5>() != null))
-            {
-                policy = 2;
-            }
             _policies.Add(hash, policy);
             return policy;
         }

@@ -92,6 +92,18 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return;
             }
+            foreach (var deletion in _snapshot.Deletions ?? new List<CapturedDeletion>())
+            {
+                _objects.ApplyDeletion(deletion);
+            }
+            foreach (var departure in _snapshot.Departures ?? new List<CapturedDeparture>())
+            {
+                if (!_records.Any(record => record.SourceUser == departure.SourceUser && record.SourceId == departure.SourceId &&
+                    record.ObservedUtcTicks > departure.ObservedUtcTicks))
+                {
+                    _objects.ApplyDeparture(departure, _snapshot.ZoneX, _snapshot.ZoneZ);
+                }
+            }
             var removed = _objects.CleanupZone(_snapshot.ZoneX, _snapshot.ZoneZ);
             if (removed > 0)
             {
@@ -106,7 +118,7 @@ namespace Landoria.WorldCrawler.Restoration
         // Waits for native scene and terrain stabilization before validating restored views.
         private bool ReadyForVerification()
         {
-            if (!ZNetScene.instance.IsAreaReady(_center))
+            if (_objects.DeletionsPending() || !NearZoneScope.Ready(_snapshot.ZoneX, _snapshot.ZoneZ))
             {
                 return false;
             }
@@ -120,7 +132,7 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 _readySince = Time.unscaledTime;
             }
-            return Time.unscaledTime - _readySince >= 3f;
+            return Time.unscaledTime - _readySince >= 2f;
         }
 
         // Confirms identity, pose and live view before considering an object restorable on disk.

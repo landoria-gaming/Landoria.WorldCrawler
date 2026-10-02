@@ -12,7 +12,7 @@ namespace Landoria.WorldCrawler.Capture
         // Rejects incomplete envelopes, duplicate records, and unsupported interpretation flags.
         internal static void Validate(ZoneSnapshot snapshot)
         {
-            if (snapshot.PayloadVersion != 1)
+            if (snapshot.PayloadVersion != 1 && snapshot.PayloadVersion != 2)
             {
                 throw new NotSupportedException("The zone payload version is unsupported.");
             }
@@ -30,6 +30,7 @@ namespace Landoria.WorldCrawler.Capture
             {
                 throw new InvalidDataException("Zone observation metadata is missing or invalid.");
             }
+            ValidateCoverage(snapshot);
             ValidateObjects(snapshot);
             ValidateNodes(snapshot.SceneNodes);
             ValidateCounts(snapshot.PrefabCounts);
@@ -39,6 +40,18 @@ namespace Landoria.WorldCrawler.Capture
             if (required.Any(category => !snapshot.ExcludedCategories.Contains(category)))
             {
                 throw new InvalidDataException("The zone payload lacks its required fauna protection policy.");
+            }
+        }
+
+        // Keeps old quality flags distinct from the new explicit near/scene/deletion evidence.
+        private static void ValidateCoverage(ZoneSnapshot snapshot)
+        {
+            if (snapshot.PayloadVersion == 2 && (!snapshot.NearCoverageValidated || !snapshot.InstancesValidated ||
+                !snapshot.SceneValidated || snapshot.StableSeconds < 2f || snapshot.Deletions == null || snapshot.Departures == null ||
+                snapshot.Departures.Any(item => item == null || !Identifier(item.SourceUser) || item.ObservedUtcTicks <= 0) ||
+                snapshot.Deletions.Any(item => item == null || !Identifier(item.SourceUser) || item.ObservedUtcTicks <= 0)))
+            {
+                throw new InvalidDataException("The recording lacks full local coverage or valid deletion evidence.");
             }
         }
 

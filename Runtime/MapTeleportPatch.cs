@@ -11,6 +11,12 @@ namespace Landoria.WorldCrawler.Runtime
         // Replaces the ordinary map click only while the client owns an idle connected character.
         private static bool Prefix(Minimap __instance)
         {
+            if ((ZInput.GetKey(KeyCode.LeftAlt) || ZInput.GetKey(KeyCode.RightAlt)) &&
+                FlightController.BlocksManualTeleport(Player.m_localPlayer))
+            {
+                HudNotification.Show("Data work in progress; teleport is blocked. Try again when movement resumes.");
+                return false;
+            }
             if (!CanTeleport() || !TryGetMapPosition(__instance, out var destination))
             {
                 return true;
