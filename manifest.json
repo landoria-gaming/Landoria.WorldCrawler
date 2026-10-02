@@ -1,8 +1,8 @@
 {
   "name": "WorldCrawler",
-  "version_number": "1.0.0",
+  "version_number": "1.0.1",
   "website_url": "https://github.com/landoria-gaming/Landoria.WorldCrawler",
-  "description": "Rebuild a server world locally without admin access or server save files.",
+  "description": "Rebuild a server world locally without admin access or access to its world files.",
   "dependencies": [
     "denikson-BepInExPack_Valheim-5.4.2351"
   ],
