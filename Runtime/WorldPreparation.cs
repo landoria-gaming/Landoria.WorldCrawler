@@ -5,16 +5,16 @@ using Landoria.WorldCrawler.Restoration;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Selects the latest export automatically and asks for confirmation using Valheim's native dialog.
+    // Selects the latest export and creates a fresh local world without presenting a choice.
     internal sealed class WorldPreparation : IDisposable
     {
         private readonly RestoreSelection _restore;
         private readonly ManualLogSource _log;
         private Task<ExportArchive> _load;
         private ExportArchive _archive;
-        private bool _confirming;
+        private Action _closeWorking;
         private bool _disposed;
-        public bool Busy => _load != null || _archive != null || _confirming;
+        public bool Busy => _load != null || _archive != null || _closeWorking != null;
 
         // Shares only successfully confirmed exports with the restoration workflow.
         public WorldPreparation(RestoreSelection restore, ManualLogSource log)
@@ -39,6 +39,8 @@ namespace Landoria.WorldCrawler.Runtime
             {
                 throw new InvalidOperationException("Close the current game dialog, then press F9.");
             }
+            _closeWorking = NativeConfirmation.ShowWorking(
+                "Preparing local world...\n\nChecking the latest export and existing worlds. Please wait.");
             _load = Task.Run(() => new ExportArchive(LatestExport.Find(CrawlerConstants.ExportRoot)));
             _log.LogInfo("F9: selecting and verifying the latest saved export...");
         }
@@ -54,15 +56,12 @@ namespace Landoria.WorldCrawler.Runtime
                     _load = null;
                     _archive = load.GetAwaiter().GetResult();
                     _log.LogInfo("F9 selected latest export: " + _archive.DirectoryPath);
+                    Prepare();
                 }
                 if (!InMenu())
                 {
                     Release();
                     return;
-                }
-                if (_archive != null && !_confirming && UnifiedPopup.IsAvailable() && !UnifiedPopup.IsVisible())
-                {
-                    Confirm();
                 }
             }
             catch (Exception error)
@@ -71,29 +70,10 @@ namespace Landoria.WorldCrawler.Runtime
             }
         }
 
-        // Shows the automatically selected world's identity before any native save is written.
-        private void Confirm()
+        // Creates a fresh world immediately after export validation and collision checks.
+        private void Prepare()
         {
-            var selected = _archive;
-            var world = selected.Manifest.World;
-            NativeConfirmation.Show("World Crawler", $"Prepare or reuse local world '{world.Name}'?\n" +
-                $"Seed: {world.SeedText}\nUID: {world.Uid}\nSaved zones: {_archive.Manifest.Zones.Count}\n\n" +
-                "Existing unrelated worlds will not be overwritten. Back up your character: the same UID shares its map and saved positions.",
-                accepted =>
-                {
-                    if (ReferenceEquals(selected, _archive))
-                    {
-                        Answer(accepted);
-                    }
-                });
-            _confirming = true;
-        }
-
-        // Creates or reuses only the confirmed, still-locked archive while remaining at the main menu.
-        private void Answer(bool accepted)
-        {
-            _confirming = false;
-            if (_disposed || !accepted || !InMenu() || _archive == null)
+            if (_disposed || !InMenu() || _archive == null)
             {
                 Release();
                 return;
@@ -103,8 +83,11 @@ namespace Landoria.WorldCrawler.Runtime
                 var path = WorldCreation.Create(_archive);
                 _restore.SourceDirectory = _archive.DirectoryPath;
                 _log.LogInfo("Prepared native-format world: " + path);
+                var world = _archive.Manifest.World.Copy();
                 Release();
-                NativeConfirmation.Report("World ready. Enter the local world, then press F10 to restore the saved areas.");
+                NativeConfirmation.Report($"Local world '{world.Name}' was created.\n\n" +
+                    $"UID: {world.Uid}\nSeed: {world.SeedText}\n\n" +
+                    "Enter the new world, then press F10 to restore the saved areas.");
             }
             catch (Exception error)
             {
@@ -123,7 +106,8 @@ namespace Landoria.WorldCrawler.Runtime
         {
             _archive?.Dispose();
             _archive = null;
-            _confirming = false;
+            _closeWorking?.Invoke();
+            _closeWorking = null;
         }
 
         // Keeps detailed diagnostics in the log and uses a short native error dialog.

@@ -1,4 +1,6 @@
 using System.IO;
+using System.Linq;
+using System.Collections.Generic;
 using Landoria.WorldCrawler.Capture;
 
 namespace Landoria.WorldCrawler.Storage
@@ -7,7 +9,7 @@ namespace Landoria.WorldCrawler.Storage
     public sealed partial class WorldStore
     {
         // Reads prior data on the worker before merging, preserving objects not seen on this visit.
-        internal void WriteReceived(ZoneSnapshot snapshot, string version)
+        internal ZoneSaveReport WriteReceived(ZoneSnapshot snapshot, string version)
         {
             EnsureOpen();
             var path = ZonePath(snapshot.ZoneX, snapshot.ZoneZ);
@@ -18,6 +20,17 @@ namespace Landoria.WorldCrawler.Storage
             }
             var merged = ReceivedZoneMerge.Merge(previous, snapshot);
             WriteZone(merged.ZoneX, merged.ZoneZ, merged.Encode(), version, merged.Objects.Count);
+            var known = new HashSet<string>((previous?.Objects ?? new List<CapturedObject>())
+                .Select(item => item.SourceUser + ":" + item.SourceId));
+            var groups = merged.Objects.Where(item => !known.Contains(item.SourceUser + ":" + item.SourceId))
+                .GroupBy(item => item.PrefabName).OrderBy(group => group.Key).ToList();
+            var added = groups
+                .Select(group => new CaptureCount { Name = group.Key, Count = group.Count() }).ToList();
+            var categories = groups.ToDictionary(group => group.Key, group =>
+                string.Join(", ", group.SelectMany(item => item.Categories ?? new string[0]).Distinct()));
+            var hashes = groups.ToDictionary(group => group.Key, group => group.First().PrefabHash);
+            return new ZoneSaveReport { X = merged.ZoneX, Z = merged.ZoneZ,
+                Added = added, Categories = categories, PrefabHashes = hashes };
         }
     }
 }

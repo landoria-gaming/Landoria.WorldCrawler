@@ -8,7 +8,7 @@ namespace Landoria.WorldCrawler.Restoration
     // Prepares only a fresh local world using the current engine's chunked-save metadata.
     internal static class WorldCreation
     {
-        // Creates no replacement or automatic rename when an existing save collides.
+        // Creates a fresh world only when neither its UID nor its local name already exists.
         public static string Create(ExportArchive archive)
         {
             LatestWorldApi.RequireCurrent();
@@ -23,15 +23,16 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 throw new InvalidOperationException("An unreadable world prevents reliable UID collision checks.");
             }
-            var existing = worlds.Where(w => w.m_uid == identity.Uid || w.m_fileSource == LatestWorldApi.LocalSource &&
-                string.Equals(w.m_name, identity.Name, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (existing.Count == 1)
+            if (worlds.Any(world => world.m_uid == identity.Uid))
             {
-                return ReusePrepared(existing[0], archive);
+                throw new InvalidOperationException("A world with UID " + identity.Uid +
+                    " already exists. Delete it in Valheim, then press F9 again. Nothing was changed.");
             }
-            if (existing.Count > 1)
+            if (worlds.Any(world => world.m_fileSource == LatestWorldApi.LocalSource &&
+                string.Equals(world.m_name, identity.Name, StringComparison.OrdinalIgnoreCase)))
             {
-                throw new InvalidOperationException("Multiple worlds match this name or UID. Select an unambiguous local target.");
+                throw new InvalidOperationException("A local world named '" + identity.Name +
+                    "' already exists. Delete or rename it, then press F9 again. Nothing was changed.");
             }
             return CreateFresh(archive);
         }
@@ -69,28 +70,6 @@ namespace Landoria.WorldCrawler.Restoration
             };
             AtomicJson.Write(Path.Combine(directory, PreparedWorld.FileName), marker,
                 value => value.Validate(identity, archive.Fingerprint));
-            LatestWorldApi.RefreshMenu();
-            return directory;
-        }
-
-        // Repeating F9 reuses only a verified local target prepared from the same export series.
-        private static string ReusePrepared(World world, ExportArchive archive)
-        {
-            var expected = archive.Manifest.World;
-            if (world.m_fileSource != LatestWorldApi.LocalSource || world.m_name != expected.Name ||
-                world.m_uid != expected.Uid || world.m_seed != expected.Seed || world.m_seedName != expected.SeedText ||
-                world.m_worldGenVersion != expected.GenerationVersion)
-            {
-                throw new InvalidOperationException("An unrelated or cloud world has this name or UID. Nothing was overwritten.");
-            }
-            var directory = LatestWorldApi.DirectoryFor(world);
-            var path = Path.Combine(directory, PreparedWorld.FileName);
-            if (!File.Exists(path))
-            {
-                throw new InvalidOperationException("An existing world has no World Crawler preparation marker. Nothing was overwritten.");
-            }
-            var marker = AtomicJson.Read<PreparedWorld>(path);
-            marker.ValidateArchive(archive);
             LatestWorldApi.RefreshMenu();
             return directory;
         }

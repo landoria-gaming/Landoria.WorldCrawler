@@ -28,18 +28,19 @@ While the mod is loaded, your character has god, ghost, cold protection and unli
 
 ### 1. Record the server world
 
-- Join the source world and press **F8**. Walk, run, sail or teleport wherever you want to record.
+- Join the source world and press **F8**. Walk, run, sail or teleport; only objects in your current 64 m sector are recorded.
 - Received objects are copied into a cache immediately, then saved every **10 seconds**. Leaving a zone does not discard its cached data.
-- Every **5 seconds**, **Recording** shows unique zones and objects saved since this session began, plus objects still cached. Objects awaiting a write, including new updates, count only as cached until the write succeeds.
-- **Green rectangles** show saved received data; **amber** shows unsaved cache updates. They do not prove that the server sent every object in a zone.
+- **Recording...** appears below the minimap. Three counters at the top show saved zones, saved objects, and cached objects.
+- A scrollable journal on the left lists newly saved prefabs with time, English name when available, category, and count. It updates only after the zone file is saved.
+- On the map and minimap, **green rectangles** show saved received data; **amber** shows unsaved cache updates. They do not prove that the server sent every object in a zone.
 - Press **F8** again for the final flush. Wait for the saved confirmation before closing the game.
 - Revisit or restart freely: objects are updated by their source IDs, without duplicates. Players and creatures are excluded.
-- Keep the whole folder in `BepInEx/config/WorldCrawler/worlds`. A sudden crash can lose data still in memory since the last successful flush.
+- Keep the whole readable JSON folder in `BepInEx/config/WorldCrawler/worlds/<world name>_<UID>`. A sudden crash can lose data still in memory since the last successful flush.
 - Recording supports **0.221.12 and 1.0.x**. The next two steps require **1.0.x**.
 
 ### 2. Create the local world
 
-At the main menu, press **F9** and confirm **Yes**. The latest recording supplies the world's name, seed and UID. Unrelated worlds are never overwritten.
+At the main menu, press **F9**. The latest recording supplies the world's name, seed and UID, and creation starts automatically. If that UID already exists, delete the existing world in Valheim and press **F9** again. Existing worlds are never reused or overwritten.
 
 ### 3. Restore the recorded areas
 

@@ -17,7 +17,7 @@ namespace Landoria.WorldCrawler.Restoration
                 throw Missing();
             }
             var matches = new List<string>();
-            foreach (var directory in Directory.GetDirectories(CrawlerConstants.ExportRoot, "world_*"))
+            foreach (var directory in Directory.GetDirectories(CrawlerConstants.ExportRoot))
             {
                 if (Matches(directory, marker))
                 {

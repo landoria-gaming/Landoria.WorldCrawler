@@ -11,8 +11,8 @@ using UnityEngine.UI;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Displays committed export progress on the large map without altering the game map.
-    internal sealed class ExportMapOverlay : IDisposable
+    // Displays committed export progress on both native maps without altering map data.
+    internal sealed partial class ExportMapOverlay : IDisposable
     {
         private const int BatchSize = 12000;
         private readonly ManualLogSource _log;
@@ -40,7 +40,7 @@ namespace Landoria.WorldCrawler.Runtime
             _restore = restore;
         }
 
-        // Refreshes the selected export lazily while only the large map is visible.
+        // Refreshes progress while either native map is visible.
         public void Update()
         {
             if (_disposed)
@@ -50,34 +50,72 @@ namespace Landoria.WorldCrawler.Runtime
             try
             {
                 var map = Minimap.instance;
-                if (!Visible(map))
+                if (!Connected(map))
                 {
                     SetVisible(false);
+                    SetSmallVisible(false);
                     return;
                 }
                 RefreshSession();
-                EnsureLayer(map.m_mapImageLarge);
-                SetVisible(true);
-                Poll();
-                if (_dataChanged)
-                {
-                    UpdateBatches();
-                }
-                UpdateViews(map);
+                ShowMaps(map);
             }
             catch (Exception error)
             {
                 SetVisible(false);
+                SetSmallVisible(false);
                 Warn(error.Message);
             }
         }
 
-        // Requires the connected character and native large-map image without changing their state.
-        private bool Visible(Minimap map)
+        // Keeps filesystem reads and mesh updates shared between the two map views.
+        private void ShowMaps(Minimap map)
         {
-            return map != null && map.m_largeRoot != null
-                && map.m_largeRoot.activeInHierarchy && map.m_mapImageLarge != null && map.m_mapImageLarge.isActiveAndEnabled
-                && Player.m_localPlayer != null && Game.instance != null && Game.instance.GetPlayerProfile() != null
+            var large = map.m_largeRoot != null && map.m_largeRoot.activeInHierarchy &&
+                map.m_mapImageLarge != null && map.m_mapImageLarge.isActiveAndEnabled;
+            var small = map.m_smallRoot != null && map.m_smallRoot.activeInHierarchy &&
+                map.m_mapImageSmall != null && map.m_mapImageSmall.isActiveAndEnabled;
+            SetVisible(large);
+            SetSmallVisible(small);
+            if (!large && !small)
+            {
+                return;
+            }
+            if (large)
+            {
+                EnsureLayer(map.m_mapImageLarge);
+            }
+            if (small)
+            {
+                EnsureSmallLayer(map.m_mapImageSmall);
+            }
+            Poll();
+            if (_dataChanged)
+            {
+                if (_layer != null)
+                {
+                    UpdateBatches();
+                }
+                if (_smallLayer != null)
+                {
+                    UpdateSmallBatches();
+                }
+                _dataChanged = false;
+            }
+            if (large)
+            {
+                UpdateViews(map);
+            }
+            if (small)
+            {
+                UpdateSmallViews(map);
+            }
+        }
+
+        // Requires only the connected character, independent of map size or visibility.
+        private bool Connected(Minimap map)
+        {
+            return map != null && Player.m_localPlayer != null && Game.instance != null &&
+                Game.instance.GetPlayerProfile() != null
                 && ZNet.World != null && ZNet.instance != null
                 && ZNet.GetConnectionStatus() == ZNet.ConnectionStatus.Connected;
         }
@@ -225,14 +263,13 @@ namespace Landoria.WorldCrawler.Runtime
         // Splits merged regions below Unity UI's 16-bit vertex limit without per-sector objects.
         private void UpdateBatches()
         {
-            UpdateBatches(_remainingGraphics, _remaining, "Remaining Sectors ");
-            UpdateBatches(_capturedGraphics, _captured, "Captured Sectors ");
-            _dataChanged = false;
+            UpdateBatches(_remainingGraphics, _remaining, "Remaining Sectors ", _layer);
+            UpdateBatches(_capturedGraphics, _captured, "Captured Sectors ", _layer);
         }
 
         // Resizes one color layer under Unity UI's 16-bit vertex limit.
         private void UpdateBatches(List<ExportMapOverlayGraphic> graphics,
-            ExportMapOverlayRegion[] regions, string prefix)
+            ExportMapOverlayRegion[] regions, string prefix, RectTransform parent)
         {
             var needed = (regions.Length + BatchSize - 1) / BatchSize;
             while (graphics.Count > needed)
@@ -243,7 +280,7 @@ namespace Landoria.WorldCrawler.Runtime
             }
             while (graphics.Count < needed)
             {
-                var rectangle = CreateRectangle(prefix + graphics.Count, _layer);
+                var rectangle = CreateRectangle(prefix + graphics.Count, parent);
                 graphics.Add(rectangle.gameObject.AddComponent<ExportMapOverlayGraphic>());
             }
             for (var index = 0; index < graphics.Count; index++)
@@ -257,16 +294,16 @@ namespace Landoria.WorldCrawler.Runtime
         {
             var complete = CrawlerConstants.ExportedZoneOpacity;
             var remaining = CrawlerConstants.RemainingZoneOpacity;
-            SetViews(_remainingGraphics, map, new Color(1f, 0.65f, 0.1f, remaining));
-            SetViews(_capturedGraphics, map, new Color(0.2f, 1f, 0.35f, complete));
+            SetViews(_remainingGraphics, map, _image, new Color(1f, 0.65f, 0.1f, remaining));
+            SetViews(_capturedGraphics, map, _image, new Color(0.2f, 1f, 0.35f, complete));
         }
 
         // Updates each fixed-color layer without changing map exploration.
-        private void SetViews(List<ExportMapOverlayGraphic> graphics, Minimap map, Color color)
+        private void SetViews(List<ExportMapOverlayGraphic> graphics, Minimap map, RawImage image, Color color)
         {
             foreach (var graphic in graphics)
             {
-                graphic.SetView(_image.uvRect, map.m_textureSize, map.m_pixelSize, color);
+                graphic.SetView(image.uvRect, map.m_textureSize, map.m_pixelSize, color);
             }
         }
 
@@ -316,6 +353,7 @@ namespace Landoria.WorldCrawler.Runtime
             _image = null;
             _capturedGraphics.Clear();
             _remainingGraphics.Clear();
+            DestroySmallLayer();
         }
 
         // Releases the overlay and observes a worker failure without waiting on game shutdown.

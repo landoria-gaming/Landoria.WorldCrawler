@@ -4,27 +4,26 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
-using System.Text;
 
 namespace Landoria.WorldCrawler.Storage
 {
     // Validates archive boundaries and generates paths only from trusted coordinates.
     internal static class StoreValidation
     {
-        // Produces a collision-resistant world folder with visible UID and seed.
+        // Uses the world name and UID as the visible export directory.
         internal static string DirectoryName(WorldIdentity world, string scope = null)
         {
             ValidateScope(scope);
-            var clean = new string(world.SeedText.Select(c =>
-                c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
-                c == '-' || c == '_' ? c : '_').Take(40).ToArray());
+            var invalid = Path.GetInvalidFileNameChars();
+            var clean = new string(world.Name.Select(value => invalid.Contains(value) ||
+                value == '/' || value == '\\' || char.IsControl(value) ? '_' : value).Take(60).ToArray())
+                .Trim(' ', '.');
             if (clean.Length == 0)
             {
-                clean = "empty";
+                clean = "World";
             }
-            return "world_" + world.Uid.ToString(CultureInfo.InvariantCulture) + "_" + clean + "_" +
-                world.Seed.ToString(CultureInfo.InvariantCulture) + "_" +
-                Hash(Encoding.UTF8.GetBytes(world.SeedText)).Substring(0, 12) + (scope == null ? "" : "_" + scope);
+            return clean + "_" + world.Uid.ToString(CultureInfo.InvariantCulture) +
+                (scope == null ? "" : "_" + scope);
         }
 
         // Allows an optional short ASCII suffix without filesystem separators or traversal syntax.
@@ -73,6 +72,13 @@ namespace Landoria.WorldCrawler.Storage
             {
                 throw new InvalidDataException("The inventory has no source character identity.");
             }
+            if (manifest.ReceivedPrefabs != null && !manifest.ReceivedPrefabs.SequenceEqual(
+                manifest.ReceivedPrefabs.Where(name => !string.IsNullOrEmpty(name))
+                    .Distinct(StringComparer.Ordinal).OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(name => name, StringComparer.Ordinal)))
+            {
+                throw new InvalidDataException("Received prefab names must be distinct and sorted.");
+            }
             var coordinates = new HashSet<long>();
             foreach (var zone in manifest.Zones)
             {
@@ -87,25 +93,17 @@ namespace Landoria.WorldCrawler.Storage
         // Checks metadata and payload bytes before accepting a zone as captured.
         internal static byte[] Envelope(ZoneEnvelope envelope, WorldIdentity expected, int x, int z)
         {
-            if (envelope != null && envelope.FormatVersion != 1)
+            if (envelope != null && envelope.FormatVersion != 2)
             {
                 throw new NotSupportedException("Unsupported World Crawler zone version; existing data was preserved.");
             }
             if (envelope == null || !expected.Matches(envelope.World) ||
                 envelope.X != x || envelope.Z != z || envelope.ObjectCount < 0 ||
-                string.IsNullOrEmpty(envelope.CaptureVersion) || envelope.PayloadBase64 == null)
+                string.IsNullOrEmpty(envelope.CaptureVersion) || envelope.Payload == null)
             {
                 throw new InvalidDataException("Zone header, world identity, or coordinates are invalid.");
             }
-            byte[] payload;
-            try
-            {
-                payload = Convert.FromBase64String(envelope.PayloadBase64);
-            }
-            catch (FormatException error)
-            {
-                throw new InvalidDataException("Zone payload is not valid Base64.", error);
-            }
+            var payload = envelope.Payload.Encode();
             if (payload.Length != envelope.PayloadLength || !string.Equals(Hash(payload), envelope.Checksum,
                 StringComparison.Ordinal))
             {

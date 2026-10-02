@@ -159,6 +159,7 @@ namespace Landoria.WorldCrawler.Restoration
                     return false;
                 }
                 LocationRegistry.Apply(source);
+                _objects.CleanupMerchantDuplicates(source, new CaptureApi().GetLocationInstance(proxy));
                 var warning = LocationLayout.Attach(target, source, _snapshot);
                 if (warning != null)
                 {

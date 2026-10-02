@@ -1,6 +1,5 @@
 using System;
 using BepInEx.Bootstrap;
-using BepInEx.Logging;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Runtime
@@ -9,7 +8,7 @@ namespace Landoria.WorldCrawler.Runtime
     internal static class ShortcutInput
     {
         // Selects a fixed shortcut without intercepting text input or another mod's editor.
-        public static int Action(ManualLogSource log)
+        public static int Action()
         {
             if (OtherModifierHeld() || ZInput.GetKey(KeyCode.LeftControl) ||
                 ZInput.GetKey(KeyCode.LeftAlt) || ZInput.GetKey(KeyCode.RightAlt) || BlockReason() != null)

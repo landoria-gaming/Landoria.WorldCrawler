@@ -1,12 +1,13 @@
 using System.Runtime.Serialization;
+using Landoria.WorldCrawler.Capture;
 
 namespace Landoria.WorldCrawler.Storage
 {
-    // Wraps an opaque game-version payload in independently verifiable metadata.
+    // Wraps a readable zone snapshot in independently verifiable metadata.
     [DataContract]
     public sealed class ZoneEnvelope
     {
-        [DataMember(Order = 0)] public int FormatVersion { get; set; } = 1;
+        [DataMember(Order = 0)] public int FormatVersion { get; set; } = 2;
         [DataMember(Order = 1)]
         public WorldIdentity World
         {
@@ -48,7 +49,7 @@ namespace Landoria.WorldCrawler.Storage
             get; set;
         }
         [DataMember(Order = 9)]
-        public string PayloadBase64
+        public ZoneSnapshot Payload
         {
             get; set;
         }

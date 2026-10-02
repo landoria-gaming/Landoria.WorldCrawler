@@ -9,7 +9,7 @@ namespace Landoria.WorldCrawler.Capture
         internal string Describe()
         {
             return "cachedZones=" + Pending + "; cachedObjects=" + PendingObjects +
-                "; localSweepRemaining=" + _sweep.Count + "; captureErrors=" + Errors +
+                "; sectorScanRemaining=" + _sweep.Count + "; captureErrors=" + Errors +
                 "; lastError=" + (LastError ?? "none") + "; " + _diagnostics.Describe();
         }
     }

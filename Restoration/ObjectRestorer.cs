@@ -84,6 +84,12 @@ namespace Landoria.WorldCrawler.Restoration
             return _cleanup.Run(x, z, _zone, _claimed);
         }
 
+        // Reconciles same-type merchant sites after their exported source site has loaded.
+        public int CleanupMerchantDuplicates(CapturedObject source, GameObject locationRoot)
+        {
+            return _cleanup.RunMerchant(source, locationRoot);
+        }
+
         // Restores once by ID, falling back to tagged or unambiguous exact generated matches.
         public ZDO Restore(CapturedObject source, string version)
         {

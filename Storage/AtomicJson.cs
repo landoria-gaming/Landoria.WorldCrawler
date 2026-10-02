@@ -22,13 +22,13 @@ namespace Landoria.WorldCrawler.Storage
             }
         }
 
-        // Validates the fully written temporary file and preserves one prior committed file.
+        // Validates the fully written temporary file before replacing the committed file.
         internal static void Write<T>(string path, T value, Action<T> validate)
         {
             var temporary = WriteTemporary(path, value, validate);
             if (File.Exists(path))
             {
-                File.Replace(temporary, path, path + ".previous");
+                File.Replace(temporary, path, null);
             }
             else
             {
@@ -47,13 +47,25 @@ namespace Landoria.WorldCrawler.Storage
         private static string WriteTemporary<T>(string path, T value, Action<T> validate)
         {
             var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
-            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            var compact = temporary + ".compact";
+            try
             {
-                Serializer(typeof(T)).WriteObject(output, value);
-                output.Flush(true);
+                using (var output = new FileStream(compact, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    Serializer(typeof(T)).WriteObject(output, value);
+                    output.Flush(true);
+                }
+                JsonPrettyPrinter.Format(compact, temporary);
+                validate(Read<T>(temporary));
+                return temporary;
             }
-            validate(Read<T>(temporary));
-            return temporary;
+            finally
+            {
+                if (File.Exists(compact))
+                {
+                    File.Delete(compact);
+                }
+            }
         }
 
         // Creates a serializer that can handle large zone payloads.

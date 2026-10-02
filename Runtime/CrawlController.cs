@@ -18,7 +18,7 @@ namespace Landoria.WorldCrawler.Runtime
         private WorldIdentity _world;
         private Player _player;
         private RecordingObserver _observer;
-        private Task _write;
+        private Task<List<ZoneSaveReport>> _write;
         private List<ZoneSnapshot> _batch;
         private CrawlPhase _phase;
         private float _nextFlush, _nextMessage, _nextDiagnostic;
@@ -31,6 +31,19 @@ namespace Landoria.WorldCrawler.Runtime
         private readonly HashSet<string> _savedObjectIds = new HashSet<string>();
         private readonly HashSet<string> _savedZones = new HashSet<string>();
         public bool Busy => Active;
+        internal bool Recording => Active;
+        internal bool Stopping => Active && _stop;
+        internal bool TeleportPaused => Active && RecordingObserver.Teleporting();
+        internal event Action<ZoneSaveReport> ZoneSaved;
+
+        // Returns one consistent status snapshot without repeatedly scanning cached IDs.
+        internal void GetStats(out int zones, out int saved, out int cached)
+        {
+            var unsaved = Active ? CachedObjectKeys() : new HashSet<string>();
+            zones = _savedZones.Count;
+            saved = _savedObjectIds.Count(id => !unsaved.Contains(id));
+            cached = unsaved.Count;
+        }
         private bool Active => _phase != CrawlPhase.Idle && _phase != CrawlPhase.Stopped;
 
         // Keeps logging separate from the lifetime of each connected source world.
@@ -119,7 +132,7 @@ namespace Landoria.WorldCrawler.Runtime
                     Report();
                     return;
                 }
-                if (!_stop)
+                if (!_stop && !RecordingObserver.Teleporting())
                 {
                     _observer.Step(_player.transform.position);
                 }
@@ -164,9 +177,6 @@ namespace Landoria.WorldCrawler.Runtime
             }
             _nextMessage = Time.realtimeSinceStartup + 5f;
             RefreshMap();
-            var cached = CachedObjectKeys();
-            HudNotification.Show("Recording | " + _savedZones.Count + " zones saved | " +
-                _savedObjectIds.Count(id => !cached.Contains(id)) + " objects saved | " + cached.Count + " objects cached");
             LogRecordingProgress();
         }
 
@@ -186,11 +196,10 @@ namespace Landoria.WorldCrawler.Runtime
                 " WARNING: " + errors + " object capture errors; check the log."));
         }
 
-        // Keeps visible messages short while retaining full errors in the BepInEx log.
+        // Records state changes in the BepInEx log without covering the game view.
         private void Say(string message)
         {
             _log.LogInfo(message);
-            HudNotification.Show(message);
         }
 
         // Joins file workers and flushes the last cache on orderly plugin shutdown.

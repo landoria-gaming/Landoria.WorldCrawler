@@ -11,14 +11,15 @@ namespace Landoria.WorldCrawler.Storage
         internal const string FileName = "pending-recording.json";
 
         // Durably stages detached data before rewriting any per-zone file.
-        internal static void Write(WorldStore store, List<ZoneSnapshot> zones, string version)
+        internal static List<ZoneSaveReport> Write(WorldStore store, List<ZoneSnapshot> zones, string version)
         {
             Recover(store);
             var checkpoint = new RecordingCheckpoint { World = store.Manifest.World.Copy(), Version = version, Zones = zones };
             var path = Path.Combine(store.DirectoryPath, FileName);
             AtomicJson.Write(path, checkpoint, value => Validate(value, store.Manifest.World));
-            Apply(store, checkpoint);
+            var reports = Apply(store, checkpoint);
             File.Delete(path);
+            return reports;
         }
 
         // Preserves a corrupt checkpoint for diagnosis rather than silently forgetting the batch.
@@ -36,12 +37,14 @@ namespace Landoria.WorldCrawler.Storage
         }
 
         // Uses the same idempotent merge for first writes, retries and process restarts.
-        private static void Apply(WorldStore store, RecordingCheckpoint checkpoint)
+        private static List<ZoneSaveReport> Apply(WorldStore store, RecordingCheckpoint checkpoint)
         {
+            var reports = new List<ZoneSaveReport>();
             foreach (var zone in checkpoint.Zones)
             {
-                store.WriteReceived(zone, checkpoint.Version);
+                reports.Add(store.WriteReceived(zone, checkpoint.Version));
             }
+            return reports;
         }
 
         // Checks identity and payloads before any recovery can modify this world's files.

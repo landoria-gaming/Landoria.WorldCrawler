@@ -19,13 +19,13 @@ namespace Landoria.WorldCrawler
         private WorldPreparation _preparation;
         private RestorationController _restoration;
         private ExportMapOverlay _mapOverlay;
+        private RecordingHud _recordingHud;
         private readonly LocalDaylight _daylight = new LocalDaylight();
 
         // Validates the runtime version before installing passive recording and protection hooks.
         private void Awake()
         {
             GameContext.ValidateVersion();
-            HudNotification.Initialize();
             Flight.CharacterMarkerPolicy.Initialize(Logger);
             var selection = new RestoreSelection();
             _harmony = new Harmony(PluginGuid);
@@ -35,6 +35,8 @@ namespace Landoria.WorldCrawler
             _preparation = new WorldPreparation(selection, Logger);
             _restoration = new RestorationController(selection, Logger);
             _mapOverlay = new ExportMapOverlay(Logger, _controller, _restoration);
+            _recordingHud = new RecordingHud(Logger);
+            _controller.ZoneSaved += _recordingHud.AddReport;
             Logger.LogInfo($"{PluginName} {PluginVersion} is loaded. F8: manual recording. F9: prepare world. F10: manual restoration.");
         }
 
@@ -51,6 +53,7 @@ namespace Landoria.WorldCrawler
             HandleShortcut();
             _controller.Update();
             _restoration.Update();
+            _recordingHud?.Update(_controller);
         }
 
         // Dispatches shortcuts and reports when an active operation blocks manual cleanup.
@@ -58,7 +61,7 @@ namespace Landoria.WorldCrawler
         {
             try
             {
-                var action = ShortcutInput.Action(Logger);
+                var action = ShortcutInput.Action();
                 if (action == 0 && !_restoration.Busy && !_preparation.Busy)
                 {
                     _controller.Toggle();
@@ -75,7 +78,6 @@ namespace Landoria.WorldCrawler
             catch (Exception error)
             {
                 Logger.LogWarning(error.Message);
-                HudNotification.Show(error.Message);
             }
         }
 
@@ -101,6 +103,7 @@ namespace Landoria.WorldCrawler
                 try
                 {
                     _mapOverlay?.Dispose();
+                    _recordingHud?.Dispose();
                 }
                 finally
                 {

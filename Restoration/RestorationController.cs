@@ -33,7 +33,7 @@ namespace Landoria.WorldCrawler.Restoration
         private ZoneRestorer _writer;
         private uint _saveBefore;
         private bool _pause, _initialSave, _finalSave, _dirty, _finalized;
-        private float _nextMessage, _waitingSince, _lastSave, _retrySaveAt;
+        private float _waitingSince, _lastSave, _retrySaveAt;
         private string _lastSaveUtc = "none";
         public bool Active => _phase != RestorePhase.Idle && _phase != RestorePhase.Stopped;
         public bool Busy => Active || _closing != null && !_closing.IsCompleted;
@@ -107,10 +107,6 @@ namespace Landoria.WorldCrawler.Restoration
                 if (!ZNet.instance.IsSaving() || IsSavePhase())
                 {
                     Advance();
-                }
-                if (Active)
-                {
-                    ShowProgress();
                 }
             }
             catch (Exception error)
@@ -326,11 +322,10 @@ namespace Landoria.WorldCrawler.Restoration
             }, TaskScheduler.Default).Unwrap();
         }
 
-        // Reports state transitions in the log and HUD.
+        // Records state transitions in the BepInEx log.
         private void Say(string message)
         {
             _log.LogInfo(message);
-            HudNotification.Show(message);
         }
 
         // Cannot promise a native final save during forced plugin shutdown.

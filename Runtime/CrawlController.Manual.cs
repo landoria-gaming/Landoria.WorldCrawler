@@ -70,7 +70,7 @@ namespace Landoria.WorldCrawler.Runtime
             var task = _write;
             _write = null;
             _phase = CrawlPhase.Waiting;
-            task.GetAwaiter().GetResult();
+            var reports = task.GetAwaiter().GetResult();
             foreach (var item in _batch.SelectMany(zone => zone.Objects))
             {
                 _savedObjectIds.Add(item.SourceUser + ":" + item.SourceId);
@@ -78,6 +78,10 @@ namespace Landoria.WorldCrawler.Runtime
             foreach (var zone in _batch)
             {
                 _savedZones.Add(zone.ZoneX + ":" + zone.ZoneZ);
+            }
+            foreach (var report in reports)
+            {
+                ZoneSaved?.Invoke(report);
             }
             _log.LogInfo("Recording flush saved: zones=" + _batch.Count +
                 "; newlyCachedZones=" + _observer.Pending + ".");

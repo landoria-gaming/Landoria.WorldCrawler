@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Landoria.WorldCrawler.Restoration
 {
     // Reconciles known generated scenery without inferring absence outside captured sectors.
-    internal sealed class GeneratedCleanup
+    internal sealed partial class GeneratedCleanup
     {
         private readonly CleanupSourceIndex _source;
         private readonly Action<string> _warning;

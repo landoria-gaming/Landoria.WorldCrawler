@@ -2,26 +2,29 @@ using System;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Bridges the extra native popup constructor argument added by Valheim 1.0.
+    // Displays simple native notices without presenting workflow choices.
     internal static class NativeConfirmation
     {
-        // Displays Valheim's Yes/No dialog and closes it before running the selected action.
-        internal static void Show(string title, string message, Action<bool> answer)
+        // Displays an immediate working notice and returns an idempotent close action.
+        internal static Action ShowWorking(string message)
         {
             if (!UnifiedPopup.IsAvailable() || UnifiedPopup.IsVisible())
             {
                 throw new InvalidOperationException("Close the current game dialog before preparing a world.");
             }
-            var signature = new[] { typeof(string), typeof(string), typeof(PopupButtonCallback),
-                typeof(PopupButtonCallback), typeof(bool), typeof(bool) };
-            var constructor = typeof(YesNoPopup).GetConstructor(signature);
-            PopupButtonCallback yes = () => { UnifiedPopup.Pop(); answer(true); };
-            PopupButtonCallback no = () => { UnifiedPopup.Pop(); answer(false); };
-            if (constructor == null)
+            var open = true;
+            Action close = () =>
             {
-                throw new MissingMethodException("The current native YesNoPopup constructor is unavailable.");
-            }
-            UnifiedPopup.Push((PopupBase)constructor.Invoke(new object[] { title, message, yes, no, false, true }));
+                if (!open)
+                {
+                    return;
+                }
+                open = false;
+                UnifiedPopup.Pop();
+            };
+            PopupButtonCallback button = () => close();
+            UnifiedPopup.Push(new WarningPopup("World Crawler", message, button, false));
+            return close;
         }
 
         // Displays short success or failure feedback using the game's existing OK dialog.

@@ -113,6 +113,8 @@ namespace Landoria.WorldCrawler.Storage
             }
             payload = MergeDeletions(x, z, payload);
             PayloadValidator?.Invoke(x, z, payload, captureVersion, objects);
+            var snapshot = Capture.ZoneSnapshot.Decode(payload);
+            payload = snapshot.Encode();
             var envelope = new ZoneEnvelope
             {
                 World = identity.Copy(),
@@ -123,9 +125,14 @@ namespace Landoria.WorldCrawler.Storage
                 ObjectCount = objects,
                 PayloadLength = payload.Length,
                 Checksum = StoreValidation.Hash(payload),
-                PayloadBase64 = Convert.ToBase64String(payload)
+                Payload = snapshot
             };
             AtomicJson.Write(ZonePath(x, z), envelope, value => ValidateEnvelope(value, x, z));
+            var names = Manifest.ReceivedPrefabs ?? new System.Collections.Generic.List<string>();
+            Manifest.ReceivedPrefabs = names.Concat(snapshot.Objects.Select(item => item.PrefabName))
+                .Where(name => !string.IsNullOrEmpty(name)).Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(name => name, StringComparer.Ordinal).ToList();
             if (!Manifest.Zones.Contains(entry))
             {
                 Manifest.Zones.Add(entry);
@@ -175,6 +182,7 @@ namespace Landoria.WorldCrawler.Storage
         {
             EnsureOpen();
             RecoverOrphanZones();
+            var received = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
             foreach (var zone in Manifest.Zones)
             {
                 var path = ZonePath(zone.X, zone.Z);
@@ -184,6 +192,7 @@ namespace Landoria.WorldCrawler.Storage
                     {
                         var envelope = AtomicJson.Read<ZoneEnvelope>(path);
                         ValidateEnvelope(envelope, zone.X, zone.Z);
+                        received.UnionWith(envelope.Payload.Objects.Select(item => item.PrefabName));
                         MarkCaptured(zone, envelope);
                     }
                     catch (Exception error) when (IsInvalidFile(error))
@@ -200,6 +209,9 @@ namespace Landoria.WorldCrawler.Storage
                     MarkPending(zone, "Zone loading was interrupted before its capture was committed.");
                 }
             }
+            Manifest.ReceivedPrefabs = received.Where(name => !string.IsNullOrEmpty(name))
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(name => name, StringComparer.Ordinal).ToList();
             Save();
         }
 
@@ -250,31 +262,20 @@ namespace Landoria.WorldCrawler.Storage
             }
         }
 
-        // Loads checkpoints and preserves a corrupt primary before recovering its prior revision.
+        // Requires the primary manifest for every existing export folder.
         private void LoadManifest()
         {
             if (!File.Exists(ManifestPath))
             {
-                if (File.Exists(ManifestPath + ".previous"))
+                if (Directory.EnumerateFileSystemEntries(DirectoryPath)
+                    .Any(path => Path.GetFileName(path) != ".worldcrawler.lock"))
                 {
-                    Manifest = ReadManifest(ManifestPath + ".previous");
-                    RecoveryNotice = "The primary manifest was missing; the previous checkpoint was recovered. ";
-                    return;
+                    throw new FileNotFoundException("An existing export folder has no manifest.json.", ManifestPath);
                 }
                 Manifest = new WorldManifest { World = identity.Copy(), CreatedUtc = DateTime.UtcNow.ToString("o") };
                 return;
             }
-            try
-            {
-                Manifest = ReadManifest(ManifestPath);
-            }
-            catch (Exception error) when (IsInvalidFile(error) && File.Exists(ManifestPath + ".previous"))
-            {
-                Manifest = ReadManifest(ManifestPath + ".previous");
-                var evidence = ManifestPath + ".invalid-" + Guid.NewGuid().ToString("N");
-                File.Move(ManifestPath, evidence);
-                RecoveryNotice = "The primary manifest was corrupt and preserved; the previous checkpoint was recovered. ";
-            }
+            Manifest = ReadManifest(ManifestPath);
             Manifest.World.Name = identity.Name;
         }
 

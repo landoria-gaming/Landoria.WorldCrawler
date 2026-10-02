@@ -16,7 +16,7 @@ namespace Landoria.WorldCrawler.Runtime
             {
                 throw new InvalidOperationException("No export found. Save at least one zone with F8 first.");
             }
-            var candidates = Directory.GetDirectories(root, "world_*").Select(directory =>
+            var candidates = Directory.GetDirectories(root).Select(directory =>
                 new { Directory = directory, Timestamp = ReadTimestamp(directory) })
                 .Where(v => v.Timestamp.HasValue).OrderByDescending(v => v.Timestamp.Value)
                 .ThenBy(v => v.Directory, StringComparer.Ordinal).ToList();

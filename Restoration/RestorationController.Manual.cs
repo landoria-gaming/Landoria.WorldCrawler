@@ -95,23 +95,5 @@ namespace Landoria.WorldCrawler.Restoration
             _zone = null;
         }
 
-        // Publishes the distinction between applied work and confirmed durable saves.
-        private void ShowProgress()
-        {
-            if (Time.unscaledTime < _nextMessage)
-            {
-                return;
-            }
-            _nextMessage = Time.unscaledTime + 5f;
-            if (_session.Archive == null)
-            {
-                HudNotification.Show("Restoration: validating export...");
-                return;
-            }
-            var total = _session.Archive.Manifest.Zones.Count;
-            var count = _session.Journal.State.Completed.Count;
-            HudNotification.Show($"Restoration: {_phase} | {count}/{total} saved ({(total == 0 ? 100 : 100 * count / total)}%)" +
-                $" | {_applied.Count} awaiting save | last save: {_lastSaveUtc}");
-        }
     }
 }

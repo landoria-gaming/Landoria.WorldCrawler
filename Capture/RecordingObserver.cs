@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Reflection;
 using Landoria.WorldCrawler.Storage;
 using UnityEngine;
 
@@ -19,9 +18,9 @@ namespace Landoria.WorldCrawler.Capture
         private readonly HashSet<ZDOID> _destroyed = new HashSet<ZDOID>();
         private Dictionary<string, RecordingZone> _pending = new Dictionary<string, RecordingZone>();
         private readonly Queue<ZDOID> _sweep = new Queue<ZDOID>();
-        private readonly FieldInfo _objects = typeof(ZDOMan).GetField("m_objectsByID", BindingFlags.Instance | BindingFlags.NonPublic);
+        private readonly List<ZDO> _sectorObjects = new List<ZDO>();
         private readonly long _worldUid;
-        private float _nextSweep;
+        private int _sweepX = int.MinValue, _sweepZ = int.MinValue;
         private long _ticks;
         private bool _frozen;
         public int Pending => _pending.Count;
@@ -32,10 +31,9 @@ namespace Landoria.WorldCrawler.Capture
         // Activates capture before the disk store is opened, retaining arrivals during preparation.
         public RecordingObserver(long worldUid)
         {
-            if (_current != null || _objects == null ||
-                _objects.FieldType != typeof(Dictionary<ZDOID, ZDO>))
+            if (_current != null)
             {
-                throw new InvalidOperationException("Recording is already active or the native object catalogue is unavailable.");
+                throw new InvalidOperationException("Recording is already active.");
             }
             _reader = new ObjectCapture(_api);
             _worldUid = worldUid;
@@ -47,6 +45,10 @@ namespace Landoria.WorldCrawler.Capture
         {
             var observer = _current;
             if (observer == null || ZNet.World == null || ZNet.World.m_uid != observer._worldUid)
+            {
+                return;
+            }
+            if (Teleporting())
             {
                 return;
             }
@@ -62,33 +64,48 @@ namespace Landoria.WorldCrawler.Capture
             }
         }
 
-        // Includes local-owner edits and objects present before F8 without controlling movement.
+        // Samples already-received objects only in the player's current sector on entry.
         public void Step(Vector3 position)
         {
-            if (_frozen || ZDOMan.instance == null)
+            if (_frozen || ZDOMan.instance == null || Teleporting())
             {
                 return;
             }
-            if (_sweep.Count == 0 && Time.realtimeSinceStartup >= _nextSweep)
-            {
-                foreach (var id in AllObjects().Keys.ToArray())
-                {
-                    _sweep.Enqueue(id);
-                }
-                _nextSweep = Time.realtimeSinceStartup + 1f;
-            }
+            SelectSector(position);
             var clock = Stopwatch.StartNew();
             for (var count = 0; _sweep.Count > 0 && count < 40 && clock.ElapsedMilliseconds < 4; count++)
             {
                 Received(ZDOMan.instance.GetZDO(_sweep.Dequeue()), false);
             }
-            ObserveScene(position);
+        }
+
+        // Queues only the sector entered, never every object retained by the client.
+        private void SelectSector(Vector3 position)
+        {
+            _api.GetZone(position, out var x, out var z);
+            if (x == _sweepX && z == _sweepZ)
+            {
+                return;
+            }
+            _sweepX = x;
+            _sweepZ = z;
+            _sweep.Clear();
+            _api.FindObjects(new Vector3(x * 64f, 0f, z * 64f), _sectorObjects);
+            foreach (var source in _sectorObjects)
+            {
+                if (source != null && source.IsValid())
+                {
+                    _sweep.Enqueue(source.m_uid);
+                }
+            }
+            _sectorObjects.Clear();
         }
 
         // Serializes included records before comparing content, retaining exact data rather than fire-clock approximations.
         private void Record(ZDO source, bool force)
         {
-            if (source == null || !source.IsValid() || !source.Persistent || _destroyed.Contains(source.m_uid) ||
+            if (source == null || !source.IsValid() || !source.Persistent || !InCurrentSector(source.GetPosition()) ||
+                _destroyed.Contains(source.m_uid) ||
                 _policy.For(source.GetPrefab()) == 0)
             {
                 return;
@@ -142,10 +159,16 @@ namespace Landoria.WorldCrawler.Capture
             {
                 return;
             }
+            if (Teleporting())
+            {
+                return;
+            }
             try
             {
-                Received(ZDOMan.instance.GetZDO(id), false);
-                if (observer._known.TryGetValue(id, out var prior))
+                var source = ZDOMan.instance.GetZDO(id);
+                Received(source, false);
+                if (source != null && observer._known.TryGetValue(id, out var prior) &&
+                    observer.InCurrentSector(source.GetPosition()))
                 {
                     var item = new CapturedDeletion { SourceUser = id.UserID.ToString(System.Globalization.CultureInfo.InvariantCulture),
                         SourceId = id.ID, PrefabHash = prior.Prefab, ObservedUtcTicks = observer.NextTicks() };
@@ -170,22 +193,23 @@ namespace Landoria.WorldCrawler.Capture
             return batch;
         }
 
-        // Captures loaded local-owner changes once more, then stops accepting new callbacks.
+        // Finishes the current-sector queue, then detaches callbacks without dropping cached data.
         internal void Freeze()
         {
             if (_frozen)
             {
                 return;
             }
-            if (ZDOMan.instance != null && ZNet.World != null && ZNet.World.m_uid == _worldUid)
+            if (ZDOMan.instance != null && ZNet.World != null && ZNet.World.m_uid == _worldUid &&
+                Player.m_localPlayer != null && !Teleporting())
             {
-                foreach (var source in AllObjects().Values.ToArray())
+                SelectSector(Player.m_localPlayer.transform.position);
+                while (_sweep.Count != 0)
                 {
-                    Received(source, false, true);
+                    Received(ZDOMan.instance.GetZDO(_sweep.Dequeue()), false);
                 }
             }
             _frozen = true;
-            RetainScene();
             Dispose();
         }
 
@@ -213,10 +237,22 @@ namespace Landoria.WorldCrawler.Capture
             return zone;
         }
 
-        // Reads the already-existing catalogue; it never requests new server objects.
-        private Dictionary<ZDOID, ZDO> AllObjects()
+        // Accepts a server record only while its native sector contains the local player.
+        private bool InCurrentSector(Vector3 position)
         {
-            return (Dictionary<ZDOID, ZDO>)_objects.GetValue(ZDOMan.instance);
+            if (Player.m_localPlayer == null)
+            {
+                return false;
+            }
+            _api.GetZone(Player.m_localPlayer.transform.position, out var playerX, out var playerZ);
+            _api.GetZone(position, out var objectX, out var objectZ);
+            return playerX == objectX && playerZ == objectZ;
+        }
+
+        // Pauses every observation while Valheim is moving the local player between locations.
+        internal static bool Teleporting()
+        {
+            return Player.m_localPlayer != null && Player.m_localPlayer.IsTeleporting();
         }
 
         // Orders same-frame moves and deletions deterministically even on a coarse system clock.
