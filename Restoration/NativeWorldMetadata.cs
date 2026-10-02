@@ -6,7 +6,7 @@ using Landoria.WorldCrawler.Storage;
 namespace Landoria.WorldCrawler.Restoration
 {
     // Verifies current-format world metadata without loading Unity or modifying any save.
-    internal static class NativeWorldMetadata
+    internal static partial class NativeWorldMetadata
     {
         // Rejects filename traversal, device names and ambiguous normalized names.
         internal static void ValidateName(string name)
@@ -20,7 +20,7 @@ namespace Landoria.WorldCrawler.Restoration
             }
         }
 
-        // Rereads the native new-format header to verify identity before making it importable.
+        // Rereads the native metadata header before any UID edit or destination use.
         internal static void Verify(string path, WorldIdentity expected)
         {
             if (!path.EndsWith(".fwl2", StringComparison.OrdinalIgnoreCase))
@@ -29,16 +29,10 @@ namespace Landoria.WorldCrawler.Restoration
             }
             using (var input = new BinaryReader(File.OpenRead(path)))
             {
-                var length = input.ReadInt32();
-                if (length <= 0 || length != input.BaseStream.Length - 4)
+                ReadIdentityPrefix(input, expected);
+                if (input.ReadInt64() != expected.Uid || input.ReadInt32() != expected.GenerationVersion)
                 {
-                    throw new InvalidDataException("Truncated native world metadata.");
-                }
-                if (input.ReadInt32() != 41 || input.ReadString() != expected.Name ||
-                    input.ReadString() != expected.SeedText || input.ReadInt32() != expected.Seed ||
-                    input.ReadInt64() != expected.Uid || input.ReadInt32() != expected.GenerationVersion)
-                {
-                    throw new InvalidDataException("The created world identity failed verification.");
+                    throw new InvalidDataException("The local world metadata does not match its expected identity.");
                 }
             }
         }

@@ -5,10 +5,9 @@ using Landoria.WorldCrawler.Restoration;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Selects the latest export and creates a fresh local world without presenting a choice.
+    // Selects the latest export and attaches a user-created local world without presenting a choice.
     internal sealed class WorldPreparation : IDisposable
     {
-        private readonly RestoreSelection _restore;
         private readonly ManualLogSource _log;
         private Task<ExportArchive> _load;
         private ExportArchive _archive;
@@ -16,10 +15,9 @@ namespace Landoria.WorldCrawler.Runtime
         private bool _disposed;
         public bool Busy => _load != null || _archive != null || _closeWorking != null;
 
-        // Shares only successfully confirmed exports with the restoration workflow.
-        public WorldPreparation(RestoreSelection restore, ManualLogSource log)
+        // Reports preparation independently of the UID-based restoration lookup.
+        public WorldPreparation(ManualLogSource log)
         {
-            _restore = restore;
             _log = log;
         }
 
@@ -70,7 +68,7 @@ namespace Landoria.WorldCrawler.Runtime
             }
         }
 
-        // Creates a fresh world immediately after export validation and collision checks.
+        // Matches an existing local world and reports its UID preparation in an OK-only dialog.
         private void Prepare()
         {
             if (_disposed || !InMenu() || _archive == null)
@@ -80,14 +78,10 @@ namespace Landoria.WorldCrawler.Runtime
             }
             try
             {
-                var path = WorldCreation.Create(_archive);
-                _restore.SourceDirectory = _archive.DirectoryPath;
-                _log.LogInfo("Prepared native-format world: " + path);
-                var world = _archive.Manifest.World.Copy();
+                var message = LocalWorldPreparation.Prepare(_archive);
+                _log.LogInfo("F9: " + message.Replace('\n', ' '));
                 Release();
-                NativeConfirmation.Report($"Local world '{world.Name}' was created.\n\n" +
-                    $"UID: {world.Uid}\nSeed: {world.SeedText}\n\n" +
-                    "Enter the new world, then press F10 to restore the saved areas.");
+                NativeConfirmation.Report(message);
             }
             catch (Exception error)
             {

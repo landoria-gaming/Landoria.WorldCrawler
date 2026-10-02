@@ -1,4 +1,5 @@
 using TMPro;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -20,11 +21,11 @@ namespace Landoria.WorldCrawler.Runtime
             rect.anchoredPosition = new Vector2(18f, 0f);
             rect.sizeDelta = new Vector2(380f, 430f);
             _panel.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.58f);
-            var title = CreateText("Saved prefabs", rect, minimap);
-            Place(title.rectTransform, Vector2.one, new Vector2(0f, 1f),
+            _title = CreateText("Saved prefabs", rect, minimap);
+            Place(_title.rectTransform, Vector2.one, new Vector2(0f, 1f),
                 new Vector2(12f, -8f), new Vector2(350f, 26f));
-            title.fontSize = 19f;
-            title.fontStyle = FontStyles.Bold;
+            _title.fontSize = 19f;
+            _title.fontStyle = FontStyles.Bold;
             CreateScroll(rect, minimap);
         }
 
@@ -101,8 +102,13 @@ namespace Landoria.WorldCrawler.Runtime
             target.transform.SetParent(parent, false);
             var label = target.AddComponent<TextMeshProUGUI>();
             label.text = string.Empty;
-            label.font = minimap.m_biomeNameSmall.font;
-            label.fontSharedMaterial = minimap.m_biomeNameSmall.fontSharedMaterial;
+            var nativeFont = minimap.m_biomeNameSmall.font;
+            label.font = nativeFont ??
+                Resources.FindObjectsOfTypeAll<TMP_FontAsset>().FirstOrDefault(asset => asset != null);
+            if (nativeFont != null)
+            {
+                label.fontSharedMaterial = minimap.m_biomeNameSmall.fontSharedMaterial;
+            }
             label.textWrappingMode = TextWrappingModes.NoWrap;
             label.raycastTarget = false;
             label.color = Color.white;

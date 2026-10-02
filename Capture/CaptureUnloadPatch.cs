@@ -9,7 +9,7 @@ namespace Landoria.WorldCrawler.Capture
         // Actual destruction is already tombstoned; simple unload must not imply deletion.
         private static void Prefix(ZDO zdo)
         {
-            RecordingObserver.Received(zdo, false, true);
+            RecordingObserver.Received(zdo, false);
         }
     }
 }

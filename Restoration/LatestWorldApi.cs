@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using Landoria.WorldCrawler.Runtime;
 using Landoria.WorldCrawler.Storage;
@@ -14,7 +15,7 @@ namespace Landoria.WorldCrawler.Restoration
         public static FileHelpers.FileSource LocalSource =>
             (FileHelpers.FileSource)Enum.Parse(typeof(FileHelpers.FileSource), "Local");
 
-        // Refuses all creation and restoration behavior on the legacy runtime.
+        // Refuses UID preparation and restoration on the legacy runtime.
         public static void RequireCurrent()
         {
             if (!SupportedGameVersions.IsCurrent(GameContext.GameVersion))
@@ -53,16 +54,38 @@ namespace Landoria.WorldCrawler.Restoration
             return LocalSavePath.World(directory, SaveRoot(), world.m_name);
         }
 
-        // Uses the current engine's metadata writer rather than constructing an old FWL file.
-        public static string SaveNew(World world)
+        // Uses the world's loaded generation, never the previous session's global save counter.
+        public static string MetadataPath(World world)
         {
-            Call(typeof(SaveSystem), null, "SetSaveNumber", new[] { typeof(uint) }, 0u);
-            Call(typeof(World), world, "SaveWorldFWLData", new[] { typeof(DateTime) }, DateTime.Now);
             if (world.m_fileSource != LocalSource)
             {
-                throw new InvalidOperationException("The engine changed the requested local save destination.");
+                throw new InvalidOperationException("Only local world metadata can be prepared.");
             }
-            return (string)Call(typeof(World), world, "GetSaveFWLPath", Type.EmptyTypes);
+            var generation = (uint)Call(typeof(World), world, "SaveNumber", Type.EmptyTypes);
+            return Path.Combine(DirectoryFor(world), "_main." + generation + ".fwl2");
+        }
+
+        // Includes local saves hidden by a cloud save with the same name in Valheim's menu.
+        public static World[] LocalWorlds()
+        {
+            var saves = (SaveWithBackups[])Call(typeof(SaveSystem), null, "GetSavesByType",
+                new[] { typeof(SaveDataType) }, SaveDataType.World);
+            var worlds = new List<World>();
+            foreach (var file in saves.SelectMany(save => save.AllFiles)
+                .Where(file => file.m_source == LocalSource &&
+                    !(bool)Call(typeof(SaveFile), file, "get_IsBackup", Type.EmptyTypes)))
+            {
+                var name = (string)Call(typeof(SaveFile), file, "get_Name", Type.EmptyTypes);
+                var local = new SaveWithBackups(name, new SaveCollection(SaveDataType.World), null);
+                local.AddSaveFile(file.AllPaths, LocalSource);
+                var world = World.LoadWorld(local);
+                if (world == null)
+                {
+                    throw new IOException("An unreadable local world prevents UID collision checks: " + name);
+                }
+                worlds.Add(world);
+            }
+            return worlds.ToArray();
         }
 
         // Requests a world-only asynchronous save and returns its previously committed generation.

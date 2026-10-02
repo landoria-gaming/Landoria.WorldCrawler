@@ -68,10 +68,6 @@ namespace Landoria.WorldCrawler.Storage
             {
                 throw new InvalidOperationException("World UID, seed, or generation version differs from the saved crawl.");
             }
-            if (manifest.InventoryInitialized && string.IsNullOrEmpty(manifest.CharacterId))
-            {
-                throw new InvalidDataException("The inventory has no source character identity.");
-            }
             if (manifest.ReceivedPrefabs != null && !manifest.ReceivedPrefabs.SequenceEqual(
                 manifest.ReceivedPrefabs.Where(name => !string.IsNullOrEmpty(name))
                     .Distinct(StringComparer.Ordinal).OrderBy(name => name, StringComparer.OrdinalIgnoreCase)

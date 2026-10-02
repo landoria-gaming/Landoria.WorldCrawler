@@ -12,6 +12,8 @@ namespace Landoria.WorldCrawler.Storage
         private readonly WorldIdentity identity;
         private readonly FileStream directoryLock;
         private bool disposed;
+        internal readonly System.Collections.Generic.HashSet<string> RecordedObjects =
+            new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
         public string DirectoryPath
         {
             get; private set;
@@ -73,17 +75,12 @@ namespace Landoria.WorldCrawler.Storage
         }
 
         // Initializes a recording without changing legacy export folders or creating a route.
-        public void BeginRecording(string characterId, string characterName, string gameVersion)
+        public void BeginRecording(string gameVersion)
         {
             EnsureOpen();
             if (Manifest.FormatVersion != 2)
             {
                 throw new NotSupportedException("This folder contains a legacy export; it is preserved read-only.");
-            }
-            if (!Manifest.InventoryInitialized)
-            {
-                Manifest.CharacterId = characterId;
-                Manifest.CharacterName = characterName ?? string.Empty;
             }
             Manifest.GameVersion = gameVersion;
             Manifest.InventoryInitialized = true;
@@ -128,6 +125,12 @@ namespace Landoria.WorldCrawler.Storage
                 Payload = snapshot
             };
             AtomicJson.Write(ZonePath(x, z), envelope, value => ValidateEnvelope(value, x, z));
+            CommitZone(entry, envelope, snapshot);
+        }
+
+        // Publishes zone metadata and the append-only source identity index after its file is committed.
+        private void CommitZone(ZoneEntry entry, ZoneEnvelope envelope, Capture.ZoneSnapshot snapshot)
+        {
             var names = Manifest.ReceivedPrefabs ?? new System.Collections.Generic.List<string>();
             Manifest.ReceivedPrefabs = names.Concat(snapshot.Objects.Select(item => item.PrefabName))
                 .Where(name => !string.IsNullOrEmpty(name)).Distinct(StringComparer.Ordinal)
@@ -139,6 +142,7 @@ namespace Landoria.WorldCrawler.Storage
             }
             MarkCaptured(entry, envelope);
             Save();
+            RecordedObjects.UnionWith(snapshot.Objects.Select(item => item.SourceUser + ":" + item.SourceId));
         }
 
         // Carries confirmed removals forward when a later complete snapshot replaces the same sector.
@@ -181,6 +185,7 @@ namespace Landoria.WorldCrawler.Storage
         public void Reconcile()
         {
             EnsureOpen();
+            RecordedObjects.Clear();
             RecoverOrphanZones();
             var received = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
             foreach (var zone in Manifest.Zones)
@@ -193,6 +198,7 @@ namespace Landoria.WorldCrawler.Storage
                         var envelope = AtomicJson.Read<ZoneEnvelope>(path);
                         ValidateEnvelope(envelope, zone.X, zone.Z);
                         received.UnionWith(envelope.Payload.Objects.Select(item => item.PrefabName));
+                        RecordedObjects.UnionWith(envelope.Payload.Objects.Select(item => item.SourceUser + ":" + item.SourceId));
                         MarkCaptured(zone, envelope);
                     }
                     catch (Exception error) when (IsInvalidFile(error))

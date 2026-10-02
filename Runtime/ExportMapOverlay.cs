@@ -194,26 +194,21 @@ namespace Landoria.WorldCrawler.Runtime
         // Captures immutable filesystem arguments before starting the next background read.
         private void StartRead()
         {
-            var marker = RestorationMarker();
+            var restoring = LocalRestoration();
             var root = _configuredRoot;
             var directory = _directory;
             var world = _world.Copy();
             _readRevision = _revision;
             _nextRead = Time.realtimeSinceStartup + 5f;
-            _read = Task.Run(() => marker == null ? ExportMapOverlaySource.ReadProgress(directory, world) :
-                RestorationMapSource.Read(marker, root, directory, world));
+            _read = Task.Run(() => restoring ? RestorationMapSource.Read(world) :
+                ExportMapOverlaySource.ReadProgress(directory, world));
         }
 
-        // Detects only the currently loaded local prepared world, never a same-UID remote server.
-        private static string RestorationMarker()
+        // Selects restoration progress only for a supported local world, never a remote server.
+        private static bool LocalRestoration()
         {
-            if (!SupportedGameVersions.IsCurrent(GameContext.GameVersion) || !ZNet.instance.IsServer() ||
-                ZNet.World.m_fileSource != LatestWorldApi.LocalSource)
-            {
-                return null;
-            }
-            var path = Path.Combine(LatestWorldApi.DirectoryFor(ZNet.World), PreparedWorld.FileName);
-            return File.Exists(path) ? path : null;
+            return SupportedGameVersions.IsCurrent(GameContext.GameVersion) && ZNet.instance.IsServer() &&
+                ZNet.World.m_fileSource == LatestWorldApi.LocalSource;
         }
 
         // Avoids replacing identical immutable geometry when only unrelated progress changed.

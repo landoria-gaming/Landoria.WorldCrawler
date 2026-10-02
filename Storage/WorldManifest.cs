@@ -28,16 +28,6 @@ namespace Landoria.WorldCrawler.Storage
         {
             get; set;
         }
-        [DataMember(Order = 5)]
-        public string CharacterId
-        {
-            get; set;
-        }
-        [DataMember(Order = 6)]
-        public string CharacterName
-        {
-            get; set;
-        }
         [DataMember(Order = 10)] public List<ZoneEntry> Zones { get; set; } = new List<ZoneEntry>();
         [DataMember(Order = 11)] public string CrawlState { get; set; } = "idle";
         [DataMember(Order = 12)]

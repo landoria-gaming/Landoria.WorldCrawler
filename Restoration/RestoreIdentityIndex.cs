@@ -1,20 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Landoria.WorldCrawler.Restoration
 {
     // Finds persisted source tags after Valheim assigns fresh runtime IDs on world load.
     internal sealed class RestoreIdentityIndex
     {
-        private readonly string _prefix;
         private readonly List<ZDOID> _pending;
         private readonly Dictionary<string, ZDOID> _identities = new Dictionary<string, ZDOID>(StringComparer.Ordinal);
         private int _index;
 
         // Takes only tagged object IDs; restoration is restricted to the current local game version.
-        internal RestoreIdentityIndex(string fingerprint)
+        internal RestoreIdentityIndex()
         {
-            _prefix = fingerprint + ":";
             _pending = ZDOExtraData.GetAllZDOIDsWithHash(ZDOExtraData.Type.String, ObjectRestorer.IdentityTag.GetStableHashCode());
         }
 
@@ -28,8 +27,8 @@ namespace Landoria.WorldCrawler.Restoration
                 {
                     continue;
                 }
-                var tag = target.GetString(ObjectRestorer.IdentityTag, "");
-                if (!tag.StartsWith(_prefix, StringComparison.Ordinal))
+                var tag = SourceKey(target.GetString(ObjectRestorer.IdentityTag, ""));
+                if (tag == null)
                 {
                     continue;
                 }
@@ -50,7 +49,20 @@ namespace Landoria.WorldCrawler.Restoration
                 return null;
             }
             var target = ZDOMan.instance.GetZDO(id);
-            return target != null && target.GetString(ObjectRestorer.IdentityTag, "") == tag ? target : null;
+            return target != null && SourceKey(target.GetString(ObjectRestorer.IdentityTag, "")) == tag ? target : null;
+        }
+
+        // Extracts original identity from both UID-prefixed and older fingerprint-prefixed tags.
+        internal static string SourceKey(string tag)
+        {
+            var parts = tag?.Split(':');
+            if (parts?.Length != 3 || string.IsNullOrEmpty(parts[0]) ||
+                !long.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var user) ||
+                !uint.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
+            {
+                return null;
+            }
+            return user.ToString(CultureInfo.InvariantCulture) + ":" + id.ToString(CultureInfo.InvariantCulture);
         }
     }
 }

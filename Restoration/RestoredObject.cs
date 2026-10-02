@@ -1,14 +1,11 @@
-using System.Runtime.Serialization;
-
 namespace Landoria.WorldCrawler.Restoration
 {
-    // Maps an exported identity to the destination object's own network identity.
-    [DataContract]
+    // Caches a native runtime identity without writing an imported-object ledger.
     internal sealed class RestoredObject
     {
-        [DataMember] public string Source;
-        [DataMember] public string TargetUser;
-        [DataMember] public uint TargetId;
-        [DataMember] public int Prefab;
+        public string Source;
+        public string TargetUser;
+        public uint TargetId;
+        public int Prefab;
     }
 }

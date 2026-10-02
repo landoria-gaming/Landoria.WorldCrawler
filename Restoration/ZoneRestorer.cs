@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Landoria.WorldCrawler.Restoration
 {
-    // Restores one loaded sector and reconciles known generated objects against complete captures.
+    // Restores one loaded sector and removes extra objects of globally exported types.
     internal sealed class ZoneRestorer
     {
         private readonly ObjectRestorer _objects;
@@ -20,12 +20,28 @@ namespace Landoria.WorldCrawler.Restoration
         private readonly float _started;
         private int _index;
         private int _verify;
-        private bool _locationCleanup;
+        private float _nextCleanup;
         private float _readySince;
         private readonly HashSet<string> _layouts = new HashSet<string>();
         public bool Done
         {
             get; private set;
+        }
+
+        // Summarizes the prefabs processed for this zone after validation succeeds.
+        internal ZoneSaveReport Report()
+        {
+            var groups = _records.Where(_objects.WasApplied).GroupBy(item => item.PrefabName).OrderBy(group => group.Key).ToList();
+            return new ZoneSaveReport
+            {
+                X = _snapshot.ZoneX,
+                Z = _snapshot.ZoneZ,
+                Added = groups.Select(group => new CaptureCount
+                    { Name = group.Key, Count = group.Count() }).ToList(),
+                Categories = groups.ToDictionary(group => group.Key, group => string.Join(", ",
+                    group.SelectMany(item => item.Categories ?? new string[0]).Distinct())),
+                PrefabHashes = groups.ToDictionary(group => group.Key, group => group.First().PrefabHash)
+            };
         }
 
         // Receives already decoded data so disk work never blocks a Unity frame.
@@ -68,7 +84,7 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return;
             }
-            ReconcileGeneratedLocations();
+            ReconcileSource();
             if (!ReadyForVerification())
             {
                 return;
@@ -81,35 +97,28 @@ namespace Landoria.WorldCrawler.Restoration
                 }
                 _verify++;
             }
-            Done = _verify == _records.Count;
+            Done = _verify == _records.Count && Cleanup() == 0 && !_objects.DeletionsPending();
         }
 
-        // Removes native generated locations that were absent from the fully observed source sector.
-        private void ReconcileGeneratedLocations()
+        // Rechecks live generated arrivals until restoration has settled.
+        private void ReconcileSource()
         {
-            if (_locationCleanup)
+            if (Time.unscaledTime >= _nextCleanup)
             {
-                return;
+                Cleanup();
+                _nextCleanup = Time.unscaledTime + 0.5f;
             }
-            foreach (var deletion in _snapshot.Deletions ?? new List<CapturedDeletion>())
-            {
-                _objects.ApplyDeletion(deletion);
-            }
-            foreach (var departure in _snapshot.Departures ?? new List<CapturedDeparture>())
-            {
-                if (!_records.Any(record => record.SourceUser == departure.SourceUser && record.SourceId == departure.SourceId &&
-                    record.ObservedUtcTicks > departure.ObservedUtcTicks))
-                {
-                    _objects.ApplyDeparture(departure, _snapshot.ZoneX, _snapshot.ZoneZ);
-                }
-            }
+        }
+
+        // Restarts scene stabilization whenever source-authoritative cleanup removes an extra copy.
+        private int Cleanup()
+        {
             var removed = _objects.CleanupZone(_snapshot.ZoneX, _snapshot.ZoneZ);
             if (removed > 0)
             {
-                _warning("Removed " + removed + " absent known generated objects in " +
-                    _snapshot.ZoneX + ":" + _snapshot.ZoneZ + ".");
+                _readySince = 0f;
             }
-            _locationCleanup = true;
+            return removed;
         }
 
 
@@ -142,6 +151,15 @@ namespace Landoria.WorldCrawler.Restoration
                 throw new InvalidOperationException("Imported identity is missing during validation; " + RestoreWarnings.Describe(source));
             }
             var instance = ZNetScene.instance.FindInstance(target);
+            if (target.GetBool("WorldCrawler.initialized", true))
+            {
+                if (source.LocationHash != 0 && instance != null)
+                {
+                    var proxy = instance.GetComponent<LocationProxy>();
+                    _objects.CleanupMerchantDuplicates(source, proxy == null ? null : new CaptureApi().GetLocationInstance(proxy));
+                }
+                return true;
+            }
             if (instance == null)
             {
                 return false;
@@ -151,6 +169,17 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 instance.SetLocalScale(ObjectRestorer.Vector(source.LocalScale));
             }
+            if (!InitializeLocation(source, target, instance))
+            {
+                return false;
+            }
+            target.Set("WorldCrawler.initialized", true);
+            return true;
+        }
+
+        // Attaches captured static layout only during the original import, including interrupted imports.
+        private bool InitializeLocation(CapturedObject source, ZDO target, ZNetView instance)
+        {
             if (source.LocationHash != 0 && !_layouts.Contains(ExportArchive.Key(source)))
             {
                 var proxy = instance.GetComponent<LocationProxy>();

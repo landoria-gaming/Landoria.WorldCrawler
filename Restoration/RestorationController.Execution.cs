@@ -41,9 +41,6 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 throw new IOException("The native world changed during backup. No restoration started; retry.");
             }
-            _session.Journal.State.BackupDirectory = path;
-            _session.Journal.Save();
-            _session.PrepareCharacter(message => _log.LogInfo(message));
             RestoreProtection.Active = true;
             _lastSave = Time.unscaledTime;
             _lastSaveUtc = DateTime.UtcNow.ToString("HH:mm:ss") + " UTC";
@@ -62,7 +59,6 @@ namespace Landoria.WorldCrawler.Restoration
             _read = null;
             var data = read.GetAwaiter().GetResult();
             var key = ZoneKey(_zone.X, _zone.Z);
-            _session.Journal.State.Completed.Remove(key);
             _applied.Remove(key);
             _validated.Remove(key);
             _session.Journal.Save();
@@ -106,7 +102,6 @@ namespace Landoria.WorldCrawler.Restoration
                 {
                     var key = ZoneKey(source.ZoneX, source.ZoneZ);
                     _unresolved.Add(key);
-                    _session.Journal.State.Completed.Remove(key);
                     AddWarning("Zone " + key + " awaits a linked source object; revisit after its destination is restored.");
                 }
             }
@@ -117,10 +112,13 @@ namespace Landoria.WorldCrawler.Restoration
         {
             _scan.Dispose();
             _scan = null;
+            var report = _writer.Report();
+            _restoredObjects += report.Added.Sum(item => item.Count);
             _applied.UnionWith(_validated.Where(key => !_unresolved.Contains(key)));
             _applied.ExceptWith(_unresolved);
             _session.Journal.Save();
             _log.LogInfo("Applied zone " + ZoneKey(_zone.X, _zone.Z) + "; awaiting native save or unresolved links.");
+            ZoneRestored?.Invoke(report);
             _writer = null;
             _zone = null;
             if (!_finalized && _session.Journal.State.Completed.Concat(_applied).Distinct().Count() ==
@@ -156,7 +154,6 @@ namespace Landoria.WorldCrawler.Restoration
                     AddWarning("Missing imported object at finalization: " + RestoreWarnings.Describe(_scan.Current));
                     var key = ZoneKey(_scan.Current.ZoneX, _scan.Current.ZoneZ);
                     _applied.Remove(key);
-                    _session.Journal.State.Completed.Remove(key);
                     continue;
                 }
                 if (target.GetBool("WorldCrawler.pending", false))

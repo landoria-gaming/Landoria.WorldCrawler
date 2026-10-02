@@ -18,12 +18,13 @@ namespace Landoria.WorldCrawler.Restoration
             }
             Method(typeof(SaveSystem), "ClearWorldListCache", true, typeof(void), typeof(bool));
             Method(typeof(SaveSystem), "GetWorldList", true, typeof(List<World>));
+            Method(typeof(SaveSystem), "GetSavesByType", true, typeof(SaveWithBackups[]), typeof(SaveDataType));
+            Method(typeof(SaveFile), "get_IsBackup", false, typeof(bool));
+            Method(typeof(SaveFile), "get_Name", false, typeof(string));
             Method(typeof(SaveSystem), "GetWorldsSaveRootPath", true, typeof(string), typeof(FileHelpers.FileSource));
-            Method(typeof(SaveSystem), "SetSaveNumber", true, typeof(void), typeof(uint));
             Method(typeof(SaveSystem), "GetSaveNumber", true, typeof(uint));
             Method(typeof(World), "GetSaveDirectory", false, typeof(string), typeof(FileHelpers.FileSource));
-            Method(typeof(World), "SaveWorldFWLData", false, typeof(void), typeof(DateTime));
-            Method(typeof(World), "GetSaveFWLPath", false, typeof(string));
+            Method(typeof(World), "SaveNumber", false, typeof(uint));
             Method(typeof(ZNet), "Save", false, typeof(void), typeof(bool), typeof(bool), typeof(bool));
             Method(typeof(FejdStartup), "UpdateWorldList", false, typeof(void), typeof(bool));
         }

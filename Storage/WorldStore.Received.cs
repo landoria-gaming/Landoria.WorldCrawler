@@ -12,6 +12,12 @@ namespace Landoria.WorldCrawler.Storage
         internal ZoneSaveReport WriteReceived(ZoneSnapshot snapshot, string version)
         {
             EnsureOpen();
+            snapshot = ZoneSnapshot.Decode(snapshot.Encode());
+            snapshot.Objects.RemoveAll(item => RecordedObjects.Contains(item.SourceUser + ":" + item.SourceId));
+            if (snapshot.Objects.Count == 0)
+            {
+                return new ZoneSaveReport { X = snapshot.ZoneX, Z = snapshot.ZoneZ };
+            }
             var path = ZonePath(snapshot.ZoneX, snapshot.ZoneZ);
             ZoneSnapshot previous = null;
             if (File.Exists(path))

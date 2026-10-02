@@ -1,58 +1,61 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Landoria.WorldCrawler.Runtime;
 using Landoria.WorldCrawler.Storage;
 
 namespace Landoria.WorldCrawler.Restoration
 {
-    // Finds the exact export recorded by a prepared local world after a game restart.
+    // Finds the recorded world by UID without a sidecar in the native save folder.
     internal static class ExportSourceResolver
     {
-        // Accepts one strict series match and leaves ambiguous or missing sources untouched.
-        internal static string Resolve(PreparedWorld marker)
+        // Requires one matching world and verifies its seed before any restoration begins.
+        internal static string Resolve(WorldIdentity world)
         {
-            if (string.IsNullOrEmpty(marker.SourceSeries) || !Directory.Exists(CrawlerConstants.ExportRoot))
+            if (!Directory.Exists(CrawlerConstants.ExportRoot))
             {
-                throw Missing();
+                throw Missing(world.Uid);
             }
             var matches = new List<string>();
             foreach (var directory in Directory.GetDirectories(CrawlerConstants.ExportRoot))
             {
-                if (Matches(directory, marker))
+                if (Matches(directory, world))
                 {
                     matches.Add(directory);
                 }
             }
             if (matches.Count != 1)
             {
-                throw matches.Count == 0 ? Missing() :
-                    new InvalidOperationException("Multiple exports match this prepared world; select one with F9.");
+                throw matches.Count == 0 ? Missing(world.Uid) :
+                    new InvalidOperationException("Multiple exports match world UID " + world.Uid +
+                        ". Keep only one in the worlds folder.");
             }
             return matches[0];
         }
 
-        // Reads only the manifest and rejects unrelated or malformed export directories.
-        private static bool Matches(string directory, PreparedWorld marker)
+        // Checks UID first, then validates the seed and metadata without silently skipping corruption.
+        private static bool Matches(string directory, WorldIdentity world)
         {
-            try
-            {
-                var manifest = AtomicJson.Read<WorldManifest>(Path.Combine(directory, "manifest.json"));
-                StoreValidation.Manifest(manifest, marker.World);
-                return manifest.CharacterId == marker.SourceCharacter &&
-                    ExportSeries.Identity(manifest, directory) == marker.SourceSeries;
-            }
-            catch (Exception error) when (error is IOException || error is InvalidDataException ||
-                error is InvalidOperationException || error is NotSupportedException)
+            var path = Path.Combine(directory, "manifest.json");
+            if (!File.Exists(path))
             {
                 return false;
             }
+            var manifest = AtomicJson.Read<WorldManifest>(path);
+            if (manifest?.World?.Uid != world.Uid)
+            {
+                return false;
+            }
+            StoreValidation.Manifest(manifest, manifest.World);
+            RestoreWorldIdentity.Require(world, manifest.World);
+            return manifest.Zones.Any(zone => zone.Status == "captured");
         }
 
-        // Explains the manual fallback when the original export is unavailable.
-        private static InvalidOperationException Missing()
+        // Identifies which world's recording is unavailable.
+        private static InvalidOperationException Missing(long uid)
         {
-            return new InvalidOperationException("The prepared world's original export was not found; select it with F9.");
+            return new InvalidOperationException("No saved export matches world UID " + uid + ".");
         }
     }
 }

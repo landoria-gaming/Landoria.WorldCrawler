@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BepInEx.Logging;
+using Landoria.WorldCrawler.Restoration;
 using Landoria.WorldCrawler.Storage;
 using TMPro;
 using UnityEngine;
@@ -9,7 +10,7 @@ using UnityEngine.UI;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Shows recording status, counters and a scrollable history of committed prefabs.
+    // Shows operation status, recording counters and a scrollable history of committed prefabs.
     internal sealed partial class RecordingHud : IDisposable
     {
         private const int HistoryLimit = 2000;
@@ -19,7 +20,7 @@ namespace Landoria.WorldCrawler.Runtime
         private Hud _hud;
         private Minimap _minimap;
         private GameObject _panel;
-        private TextMeshProUGUI _history, _stats, _status;
+        private TextMeshProUGUI _history, _stats, _status, _title;
         private RectTransform _content;
         private ScrollRect _scroll;
         private float _nextStats;
@@ -44,14 +45,33 @@ namespace Landoria.WorldCrawler.Runtime
             }
         }
 
+        // Adds one successfully applied restoration zone to the same scrollable journal.
+        internal void AddRestoreReport(ZoneSaveReport report)
+        {
+            try
+            {
+                AppendReport(report, "Applied zone ");
+            }
+            catch (Exception error)
+            {
+                Warn(error);
+            }
+        }
+
         // Appends only newly committed prefab types with one timestamp per zone.
         private void AppendReport(ZoneSaveReport report)
+        {
+            AppendReport(report, "Zone ");
+        }
+
+        // Appends one zone summary using the operation-specific line prefix.
+        private void AppendReport(ZoneSaveReport report, string prefix)
         {
             if (report.Added.Count == 0)
             {
                 return;
             }
-            _lines.Add(DateTime.Now.ToString("HH:mm:ss") + "  Zone " + report.X + ":" + report.Z);
+            _lines.Add(DateTime.Now.ToString("HH:mm:ss") + "  " + prefix + report.X + ":" + report.Z);
             foreach (var item in report.Added)
             {
                 report.Categories.TryGetValue(item.Name, out var category);
@@ -69,11 +89,11 @@ namespace Landoria.WorldCrawler.Runtime
         }
 
         // Keeps the journal visible in game and updates counters once per second.
-        internal void Update(CrawlController controller)
+        internal void Update(CrawlController controller, RestorationController restoration)
         {
             try
             {
-                UpdateCore(controller);
+                UpdateCore(controller, restoration);
                 _warned = false;
             }
             catch (Exception error)
@@ -84,7 +104,7 @@ namespace Landoria.WorldCrawler.Runtime
         }
 
         // Attaches to the live native HUD and refreshes counters once per second.
-        private void UpdateCore(CrawlController controller)
+        private void UpdateCore(CrawlController controller, RestorationController restoration)
         {
             if (Player.m_localPlayer == null || Hud.instance == null || Minimap.instance == null ||
                 Minimap.instance.m_biomeNameSmall == null || Minimap.instance.m_mapImageSmall == null)
@@ -100,18 +120,41 @@ namespace Landoria.WorldCrawler.Runtime
             }
             _panel.SetActive(_lines.Count > 0);
             var recording = controller.Recording;
-            _stats.gameObject.SetActive(recording);
-            _status.gameObject.SetActive(recording);
-            _status.text = controller.Stopping ? "Finishing recording..." : controller.TeleportPaused ?
-                "Capture paused: teleporting..." : "Recording...";
+            var restorationStatus = restoration.HudStatus;
+            var restoring = restorationStatus != null;
+            _stats.gameObject.SetActive(recording || restoring);
+            _status.gameObject.SetActive(recording || restorationStatus != null);
+            _status.text = recording ? RecordingStatus(controller) : restorationStatus ?? string.Empty;
+            _title.text = restoring ? "Restored prefabs" : "Saved prefabs";
             PositionStatus();
-            if (recording && Time.realtimeSinceStartup >= _nextStats)
+            if ((recording || restoring) && Time.realtimeSinceStartup >= _nextStats)
             {
-                controller.GetStats(out var zones, out var saved, out var cached);
-                _stats.text = "Zones saved: " + zones + "    Objects saved: " + saved +
-                    "    Objects cached: " + cached;
+                _stats.text = recording ? RecordingStats(controller) : RestorationStats(restoration);
                 _nextStats = Time.realtimeSinceStartup + 1f;
             }
+        }
+
+        // Selects the current recording label without affecting restoration state.
+        private static string RecordingStatus(CrawlController controller)
+        {
+            return controller.Stopping ? "Finishing recording..." : controller.TeleportPaused ?
+                "Capture paused: teleporting..." : "Recording...";
+        }
+
+        // Formats the three recording counters shown across the top of the screen.
+        private static string RecordingStats(CrawlController controller)
+        {
+            controller.GetStats(out var zones, out var saved, out var cached);
+            return "Zones saved: " + zones + "    Objects saved: " + saved +
+                "    Objects cached: " + cached;
+        }
+
+        // Formats durable restore progress separately from changes awaiting a native save.
+        private static string RestorationStats(RestorationController restoration)
+        {
+            restoration.GetHudStats(out var saved, out var total, out var pending, out var objects);
+            return "Zones saved: " + saved + "/" + total + "    Zones awaiting save: " + pending +
+                "    Objects restored: " + objects;
         }
 
         // Reports one UI failure without repeatedly filling the BepInEx log.
@@ -129,7 +172,8 @@ namespace Landoria.WorldCrawler.Runtime
         private void Ensure(Hud hud, Minimap minimap)
         {
             if (_panel != null && _hud == hud && _minimap == minimap && _status != null &&
-                _history != null && _scroll != null && _scroll.viewport != null && _content != null)
+                _history != null && _title != null && _scroll != null &&
+                _scroll.viewport != null && _content != null)
             {
                 return;
             }
@@ -179,6 +223,7 @@ namespace Landoria.WorldCrawler.Runtime
             _history = null;
             _stats = null;
             _status = null;
+            _title = null;
             _scroll = null;
             _content = null;
         }

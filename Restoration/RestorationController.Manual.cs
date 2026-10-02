@@ -28,6 +28,7 @@ namespace Landoria.WorldCrawler.Restoration
             }
             var keys = new HashSet<string>(_scope.Zones.Select(zone => ZoneKey(zone.X, zone.Z)));
             _visited.RemoveWhere(key => !keys.Contains(key));
+            CleanupRestoredZone();
             _zone = _session.Archive.Manifest.Zones.FirstOrDefault(zone =>
                 _scope.Contains(zone.X, zone.Z) && !_visited.Contains(ZoneKey(zone.X, zone.Z)));
             if (_zone == null)

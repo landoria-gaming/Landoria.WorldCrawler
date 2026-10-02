@@ -21,6 +21,7 @@ namespace Landoria.WorldCrawler.Runtime
                 }
                 _preparation.Dispose();
                 _preparation = null;
+                _observer.AcceptExisting(_store.RecordedObjects);
                 _phase = CrawlPhase.Waiting;
                 PublishCommitted();
             }

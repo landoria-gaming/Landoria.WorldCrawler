@@ -19,7 +19,7 @@ namespace Landoria.WorldCrawler.Restoration
         private readonly Action<string> _warning;
         private readonly List<ZDO> _zone = new List<ZDO>();
         private readonly HashSet<ZDOID> _claimed = new HashSet<ZDOID>();
-        private readonly HashSet<ZDOID> _removed = new HashSet<ZDOID>();
+        private readonly HashSet<string> _applied = new HashSet<string>();
         private readonly CaptureApi _api = new CaptureApi();
         private readonly GeneratedCleanup _cleanup;
         private static readonly MethodInfo RemoveView = typeof(ZNetScene).GetMethod("OnZDODestroyed",
@@ -31,7 +31,7 @@ namespace Landoria.WorldCrawler.Restoration
             _fingerprint = fingerprint;
             _state = state;
             _map = state.Objects.ToDictionary(v => v.Source, StringComparer.Ordinal);
-            _identities = new RestoreIdentityIndex(fingerprint);
+            _identities = new RestoreIdentityIndex();
             _warning = warning;
             _cleanup = new GeneratedCleanup(source, warning);
             if (RemoveView == null)
@@ -76,11 +76,25 @@ namespace Landoria.WorldCrawler.Restoration
             var seen = new HashSet<ZDOID>();
             _zone.RemoveAll(target => target == null || !seen.Add(target.m_uid));
             _claimed.Clear();
+            _applied.Clear();
+        }
+
+        // Counts only objects first applied during this zone visit.
+        internal bool WasApplied(CapturedObject source)
+        {
+            return _applied.Contains(ExportArchive.Key(source));
+        }
+
+        // Waits until the engine has committed queued source-authoritative removals.
+        internal bool DeletionsPending()
+        {
+            return _cleanup.DeletionsPending();
         }
 
         // Uses one source-aware cleanup policy for both restoration and manual repair.
         public int CleanupZone(int x, int z)
         {
+            _api.FindObjects(new Vector3(x * 64f, 0f, z * 64f), _zone);
             return _cleanup.Run(x, z, _zone, _claimed);
         }
 
@@ -94,13 +108,20 @@ namespace Landoria.WorldCrawler.Restoration
         public ZDO Restore(CapturedObject source, string version)
         {
             Validate(source);
-            var target = Resolve(source) ?? Match(source);
+            var target = Resolve(source);
+            if (target != null)
+            {
+                _claimed.Add(target.m_uid);
+                return target;
+            }
+            target = Match(source);
             var created = target == null;
             target = target ?? CreateTarget(source);
             try
             {
                 EnsureSafe(target, source.PrefabHash);
                 ApplyWithRollback(target, source, version);
+                _applied.Add(ExportArchive.Key(source));
                 _claimed.Add(target.m_uid);
                 return target;
             }
@@ -174,6 +195,8 @@ namespace Landoria.WorldCrawler.Restoration
             }
             target.Set(IdentityTag, Tag(source));
             target.Set("WorldCrawler.pending", true);
+            target.Set("WorldCrawler.initialized", false);
+            RememberConnection(target, source);
             Record(source, target);
         }
 
@@ -181,7 +204,7 @@ namespace Landoria.WorldCrawler.Restoration
         public ZDO Resolve(CapturedObject source)
         {
             var target = ResolveKey(ExportArchive.Key(source));
-            if (target != null && target.GetPrefab() == source.PrefabHash)
+            if (target != null)
             {
                 Record(source, target);
                 return target;
@@ -192,73 +215,20 @@ namespace Landoria.WorldCrawler.Restoration
         // Treats session IDs as a cache and falls back to the immutable source tag after reload.
         private ZDO ResolveKey(string key)
         {
-            var tag = _fingerprint + ":" + key;
             if (_map.TryGetValue(key, out var mapped))
             {
                 var target = ZDOMan.instance.GetZDO(new ZDOID(long.Parse(mapped.TargetUser, CultureInfo.InvariantCulture), mapped.TargetId));
-                if (target != null && target.GetString(IdentityTag, "") == tag)
+                if (target != null && RestoreIdentityIndex.SourceKey(target.GetString(IdentityTag, "")) == key)
                 {
                     return target;
                 }
             }
-            return _identities.Resolve(tag);
-        }
-
-        // Removes only our tagged copy of an explicitly deleted source object, never an unrelated match.
-        public void ApplyDeletion(CapturedDeletion source)
-        {
-            var key = source.SourceUser + ":" + source.SourceId.ToString(CultureInfo.InvariantCulture);
-            var target = ResolveKey(key);
-            if (target == null)
-            {
-                return;
-            }
-            EnsureSafe(target, source.PrefabHash);
-            _removed.Add(target.m_uid);
-            target.SetOwner(ZDOMan.GetSessionID());
-            ZDOMan.instance.DestroyZDO(target);
-        }
-
-        // Restores connections only to other proven imported objects, never to source IDs by accident.
-        public bool Connect(CapturedObject source)
-        {
-            var target = Resolve(source);
-            if (target == null || source.ConnectionType == 0)
-            {
-                return true;
-            }
-            var key = source.ConnectionTargetUser + ":" + source.ConnectionTargetId;
-            if (!_map.TryGetValue(key, out var mapped))
-            {
-                return false;
-            }
-            var endpoint = ResolveKey(key);
-            if (endpoint == null || endpoint.GetString(IdentityTag, "") != _fingerprint + ":" + key)
-            {
-                return false;
-            }
-            EnsureSafe(target, source.PrefabHash);
-            EnsureSafe(endpoint, mapped.Prefab);
-            var connection = target.GetConnection();
-            if (connection == null || connection.m_target != endpoint.m_uid || (int)connection.m_type != source.ConnectionType)
-            {
-                target.SetConnection((ZDOExtraData.ConnectionType)source.ConnectionType, endpoint.m_uid);
-            }
-            return true;
+            return _identities.Resolve(key);
         }
 
         // Reuses proven equal generated copies while rejecting genuinely ambiguous structures.
         private ZDO Match(CapturedObject source)
         {
-            var tagged = _zone.Where(z => z.GetString(IdentityTag, "") == Tag(source)).ToList();
-            if (tagged.Count > 1)
-            {
-                throw new InvalidOperationException("Duplicate restored source identity in target zone.");
-            }
-            if (tagged.Count == 1)
-            {
-                return tagged[0];
-            }
             var position = Vector(source.Position);
             var rotation = Rotation(source.Rotation);
             var savedRotation = GeneratedObjectMatch.SavedRotation(rotation);
@@ -293,7 +263,7 @@ namespace Landoria.WorldCrawler.Restoration
             RemoveView.Invoke(ZNetScene.instance, new object[] { target });
         }
 
-        // Updates the journal mapping after a successful object mutation.
+        // Caches runtime identities only; the native source tag survives game restarts.
         private void Record(CapturedObject source, ZDO target)
         {
             var key = ExportArchive.Key(source);
@@ -305,10 +275,10 @@ namespace Landoria.WorldCrawler.Restoration
             }
             record.TargetUser = target.m_uid.UserID.ToString(CultureInfo.InvariantCulture);
             record.TargetId = target.m_uid.ID;
-            record.Prefab = source.PrefabHash;
+            record.Prefab = target.GetPrefab();
         }
 
-        // Namespaces source IDs by the immutable export fingerprint.
+        // Namespaces original source IDs by the world UID, not the changing export contents.
         private string Tag(CapturedObject source)
         {
             return _fingerprint + ":" + ExportArchive.Key(source);

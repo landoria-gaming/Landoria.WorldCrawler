@@ -14,8 +14,7 @@ namespace Landoria.WorldCrawler.Capture
         private readonly CaptureApi _api = new CaptureApi();
         private readonly ObjectCapture _reader;
         private readonly CaptureReceivePolicy _policy = new CaptureReceivePolicy();
-        private readonly Dictionary<ZDOID, RecordingStamp> _known = new Dictionary<ZDOID, RecordingStamp>();
-        private readonly HashSet<ZDOID> _destroyed = new HashSet<ZDOID>();
+        private readonly HashSet<string> _known = new HashSet<string>(StringComparer.Ordinal);
         private Dictionary<string, RecordingZone> _pending = new Dictionary<string, RecordingZone>();
         private readonly Queue<ZDOID> _sweep = new Queue<ZDOID>();
         private readonly List<ZDO> _sectorObjects = new List<ZDO>();
@@ -41,7 +40,7 @@ namespace Landoria.WorldCrawler.Capture
         }
 
         // Copies the complete deserialized object, never merely queuing a mutable ZDO reference.
-        public static void Received(ZDO source, bool fromNetwork = true, bool force = false)
+        public static void Received(ZDO source, bool fromNetwork = true)
         {
             var observer = _current;
             if (observer == null || ZNet.World == null || ZNet.World.m_uid != observer._worldUid)
@@ -55,7 +54,7 @@ namespace Landoria.WorldCrawler.Capture
             observer._diagnostics.Received(fromNetwork);
             try
             {
-                observer.Record(source, fromNetwork || force);
+                observer.Record(source);
             }
             catch (Exception error)
             {
@@ -101,87 +100,52 @@ namespace Landoria.WorldCrawler.Capture
             _sectorObjects.Clear();
         }
 
-        // Serializes included records before comparing content, retaining exact data rather than fire-clock approximations.
-        private void Record(ZDO source, bool force)
+        // Copies only the first accepted observation of each source identity.
+        private void Record(ZDO source)
         {
             if (source == null || !source.IsValid() || !source.Persistent || !InCurrentSector(source.GetPosition()) ||
-                _destroyed.Contains(source.m_uid) ||
                 _policy.For(source.GetPrefab()) == 0)
             {
                 return;
             }
             _diagnostics.Processed++;
-            var view = ZNetScene.instance.FindInstance(source);
-            _known.TryGetValue(source.m_uid, out var prior);
-            if (!force && prior != null && prior.Revision == source.DataRevision &&
-                prior.HadInstance == (view != null) && prior.Position == source.GetPosition())
+            var key = source.m_uid.UserID + ":" + source.m_uid.ID;
+            if (_known.Contains(key))
             {
+                _diagnostics.Unchanged++;
                 return;
             }
             _api.GetZone(source.GetPosition(), out var x, out var z);
             var item = _reader.Read(source, x, z);
-            item.LocalScale = item.LocalScale ?? prior?.LocalScale;
-            var fingerprint = ContentFingerprint(item);
-            if (prior != null && prior.Fingerprint == fingerprint)
-            {
-                prior.Revision = source.DataRevision;
-                prior.HadInstance = view != null;
-                _diagnostics.Unchanged++;
-                return;
-            }
-            Cache(source, item, prior, view != null, fingerprint);
+            Cache(source, item);
         }
 
-        // Tracks sector moves separately from deletion and retains known instantiated scale.
-        private void Cache(ZDO source, CapturedObject item, RecordingStamp prior, bool hasInstance, string fingerprint)
+        // Retains the first position and payload even if the source object later moves or changes.
+        private void Cache(ZDO source, CapturedObject item)
         {
             var x = item.ZoneX;
             var z = item.ZoneZ;
             item.ObservedUtcTicks = NextTicks();
-            if (prior != null && (prior.X != x || prior.Z != z))
-            {
-                Zone(prior.X, prior.Z).Departures[Key(item)] = new CapturedDeparture {
-                    SourceUser = item.SourceUser, SourceId = item.SourceId, PrefabHash = prior.Prefab,
-                    DestinationX = x, DestinationZ = z, ObservedUtcTicks = item.ObservedUtcTicks - 1 };
-            }
             Zone(x, z).Objects[Key(item)] = item;
-            _known[source.m_uid] = new RecordingStamp { X = x, Z = z, Prefab = item.PrefabHash,
-                Revision = source.DataRevision, HadInstance = hasInstance, Position = source.GetPosition(),
-                Fingerprint = fingerprint, LocalScale = item.LocalScale };
+            _known.Add(Key(item));
             _diagnostics.Changed(source, x, z);
         }
 
-        // Records actual deletion messages; ordinary unloads only copy their last known state.
-        public static void Destroyed(ZDOID id)
+        // Discards startup receipts already saved in any sector and seeds the session-wide identity set.
+        internal void AcceptExisting(IEnumerable<string> identities)
         {
-            var observer = _current;
-            if (observer == null || ZNet.World == null || ZNet.World.m_uid != observer._worldUid)
+            var saved = new HashSet<string>(identities, StringComparer.Ordinal);
+            _known.UnionWith(saved);
+            foreach (var zone in _pending.Values)
             {
-                return;
-            }
-            if (Teleporting())
-            {
-                return;
-            }
-            try
-            {
-                var source = ZDOMan.instance.GetZDO(id);
-                Received(source, false);
-                if (source != null && observer._known.TryGetValue(id, out var prior) &&
-                    observer.InCurrentSector(source.GetPosition()))
+                foreach (var key in zone.Objects.Keys.Where(saved.Contains).ToArray())
                 {
-                    var item = new CapturedDeletion { SourceUser = id.UserID.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        SourceId = id.ID, PrefabHash = prior.Prefab, ObservedUtcTicks = observer.NextTicks() };
-                    observer.Zone(prior.X, prior.Z).Deletions[item.SourceUser + ":" + item.SourceId] = item;
-                    observer.Zone(prior.X, prior.Z).Objects.Remove(item.SourceUser + ":" + item.SourceId);
-                    observer._destroyed.Add(id);
-                    observer._known.Remove(id);
+                    zone.Objects.Remove(key);
                 }
             }
-            catch (Exception error)
+            foreach (var key in _pending.Where(pair => pair.Value.Objects.Count == 0).Select(pair => pair.Key).ToArray())
             {
-                observer.Errors++;
-                observer.LastError = "Deletion " + id + ": " + error.Message;
+                _pending.Remove(key);
             }
         }
 
@@ -266,21 +230,6 @@ namespace Landoria.WorldCrawler.Capture
         private static string Key(CapturedObject item)
         {
             return item.SourceUser + ":" + item.SourceId;
-        }
-
-        // Hashes complete serialized content and explicit transforms without volatile capture timestamps.
-        private static string ContentFingerprint(CapturedObject item)
-        {
-            var data = new ZPackage();
-            data.Write(item.RawDataBase64);
-            foreach (var value in item.Position.Concat(item.Rotation).Concat(item.LocalScale ?? new float[0]))
-            {
-                data.Write(value);
-            }
-            data.Write(item.ConnectionType);
-            data.Write(item.ConnectionTargetUser ?? "");
-            data.Write(item.ConnectionTargetId);
-            return StoreValidation.Hash(data.GetArray());
         }
 
         // Detaches callbacks without discarding the owned data waiting to be flushed.

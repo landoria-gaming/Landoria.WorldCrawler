@@ -1,115 +1,57 @@
 using System;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using Landoria.WorldCrawler.Storage;
 
 namespace Landoria.WorldCrawler.Restoration
 {
-    // Saves recoverable import checkpoints separately from untouched export files.
-    internal sealed class RestoreJournal : IDisposable
+    // Persists only the zones restored at least once, beside their exported files.
+    internal sealed class RestoreJournal
     {
-        private readonly FileStream _lock;
-        private readonly PreparedWorld _target;
-        public string DirectoryPath
+        internal const string FileName = "restore.json";
+        private readonly long _uid;
+        public string DirectoryPath { get; }
+        public RestoreState State { get; } = new RestoreState();
+
+        // Reuses the archive's exclusive lock without creating another tracking directory.
+        public RestoreJournal(WorldIdentity world, ExportArchive archive)
         {
-            get;
-        }
-        public RestoreState State
-        {
-            get;
+            RestoreWorldIdentity.Require(world, archive.Manifest.World);
+            _uid = world.Uid;
+            DirectoryPath = archive.DirectoryPath;
+            State.Completed.AddRange(Read(DirectoryPath, _uid).RestoredZones);
         }
 
-        // Holds one world-bound restoration writer, regardless of which character is used.
-        public RestoreJournal(string root, PreparedWorld target, string character)
-        {
-            if (string.IsNullOrWhiteSpace(character))
-            {
-                throw new InvalidOperationException("A loaded character is required.");
-            }
-            _target = target;
-            DirectoryPath = Path.Combine(Path.GetFullPath(root), "_restorations", target.Token);
-            Directory.CreateDirectory(DirectoryPath);
-            _lock = new FileStream(Path.Combine(DirectoryPath, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            try
-            {
-                var path = Path.Combine(DirectoryPath, "restore.json");
-                State = File.Exists(path) ? AtomicJson.Read<RestoreState>(path) : new RestoreState
-                {
-                    World = target.World.Copy(),
-                    Token = target.Token,
-                    Fingerprint = target.ExportFingerprint,
-                    Character = character,
-                    AcceptedZones = target.InitialZones == null ? null :
-                        new System.Collections.Generic.Dictionary<string, string>(target.InitialZones)
-                };
-                Validate(State);
-                State.Character = character;
-            }
-            catch
-            {
-                _lock.Dispose();
-                throw;
-            }
-        }
-
-        // Atomically commits only import state, preserving its preceding revision.
+        // Writes no character information, object ledger or source revision history.
         public void Save()
         {
-            State.UpdatedUtc = DateTime.UtcNow.ToString("o");
-            AtomicJson.Write(Path.Combine(DirectoryPath, "restore.json"), State, Validate);
+            var progress = new RestoreProgress
+            {
+                WorldUid = _uid,
+                RestoredZones = State.Completed.Distinct().OrderBy(key => key, StringComparer.Ordinal).ToList()
+            };
+            AtomicJson.Write(Path.Combine(DirectoryPath, FileName), progress, item => item.Validate(_uid));
         }
 
-        // Extends the known capture set without changing stable object tags or completed-zone checkpoints.
-        public void AcceptArchive(ExportArchive archive)
+        // Reads the optional map progress without opening any world save.
+        internal static RestoreProgress Read(string directory, long uid)
         {
-            _target.ValidateArchive(archive);
-            if (State.AcceptedZones != null)
+            var path = Path.Combine(directory, FileName);
+            var progress = File.Exists(path) ? AtomicJson.Read<RestoreProgress>(path) :
+                new RestoreProgress { WorldUid = uid };
+            if (progress == null)
             {
-                archive.RequirePresent(State.AcceptedZones);
+                throw new InvalidDataException("Restoration map progress is empty.");
             }
-            var signatures = archive.ZoneSignatures();
-            if (State.Completed.Any(key => !signatures.ContainsKey(key)))
-            {
-                throw new InvalidDataException("The restore journal contains zones outside the available captures.");
-            }
-            if (State.AcceptedZones != null)
-            {
-                var changed = State.AcceptedZones.Where(v => signatures[v.Key] != v.Value).Select(v => v.Key).ToList();
-                State.Completed.RemoveAll(changed.Contains);
-                if (changed.Count > 0)
-                {
-                    State.Warnings.Add(changed.Count + " recaptured zones are pending reimport; existing source identity tags retained.");
-                }
-            }
-            State.AcceptedZones = signatures;
-            Save();
+            progress.Validate(uid);
+            return progress;
         }
 
-        // Rejects cross-world or malformed recovery information.
-        private void Validate(RestoreState state)
+        // Clears map colors when F9 attaches a newly created destination to the source UID.
+        internal static void Reset(string directory, long uid)
         {
-            if (state == null || state.FormatVersion != 1 || state.World == null ||
-                !state.World.Matches(_target.World) || state.Token != _target.Token ||
-                state.Fingerprint != _target.ExportFingerprint || string.IsNullOrWhiteSpace(state.Character) ||
-                state.Completed == null || state.Objects == null || state.Warnings == null ||
-                state.Completed.Count != state.Completed.Distinct().Count() ||
-                state.Objects.Any(v => v == null || string.IsNullOrEmpty(v.Source) ||
-                    !long.TryParse(v.TargetUser, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)) ||
-                state.Objects.Select(v => v.Source).Distinct().Count() != state.Objects.Count)
-            {
-                throw new InvalidDataException("The restore journal is invalid or belongs to another target.");
-            }
-            if (_target.SourceSeries != null && (state.AcceptedZones == null || state.Completed.Any(key => !state.AcceptedZones.ContainsKey(key))))
-            {
-                throw new InvalidDataException("The incremental restore journal has missing capture signatures.");
-            }
-        }
-
-        // Releases the writer lock without deleting its recovery records.
-        public void Dispose()
-        {
-            _lock.Dispose();
+            AtomicJson.Write(Path.Combine(directory, FileName), new RestoreProgress { WorldUid = uid },
+                item => item.Validate(uid));
         }
     }
 }

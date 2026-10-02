@@ -16,21 +16,18 @@ namespace Landoria.WorldCrawler.Runtime
         // Copies the small identity record before moving disk work off the Unity thread.
         public ExportPreparation(WorldIdentity world)
         {
-            var profile = Game.instance.GetPlayerProfile();
-            var id = profile.GetPlayerID().ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var name = profile.GetName();
             var version = GameContext.GameVersion;
-            _work = Task.Run(() => Open(world, id, name, version));
+            _work = Task.Run(() => Open(world, version));
         }
 
         // Opens only the recording folder; old landmark folders remain untouched.
-        private static WorldStore Open(WorldIdentity world, string id, string name, string version)
+        private static WorldStore Open(WorldIdentity world, string version)
         {
             var store = WorldStore.Open(CrawlerConstants.ExportRoot, world, false);
             try
             {
                 store.PayloadValidator = ValidatePayload;
-                store.BeginRecording(id, name, version);
+                store.BeginRecording(version);
                 store.Reconcile();
                 RecordingFlush.Recover(store);
                 return store;

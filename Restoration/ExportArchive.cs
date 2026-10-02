@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
 using Landoria.WorldCrawler.Capture;
 using Landoria.WorldCrawler.Storage;
 
@@ -14,7 +13,6 @@ namespace Landoria.WorldCrawler.Restoration
     {
         private readonly FileStream _lock;
         private readonly Dictionary<string, CapturedObject> _latest = new Dictionary<string, CapturedObject>();
-        private readonly Dictionary<string, long> _deleted = new Dictionary<string, long>();
         internal CleanupSourceIndex Cleanup { get; } = new CleanupSourceIndex();
         public string DirectoryPath
         {
@@ -24,15 +22,6 @@ namespace Landoria.WorldCrawler.Restoration
         {
             get;
         }
-        public string Fingerprint
-        {
-            get;
-        }
-        public string SeriesIdentity
-        {
-            get;
-        }
-        public int LegacyCaptureCount { get; private set; }
         public int PlannedZoneCount
         {
             get;
@@ -63,32 +52,8 @@ namespace Landoria.WorldCrawler.Restoration
                 {
                     throw new InvalidDataException("No saved zones are available. Export at least one zone with F8 first.");
                 }
-                SeriesIdentity = ExportSeries.Identity(Manifest, DirectoryPath);
-                var signature = new StringBuilder();
-                foreach (var zone in Manifest.Zones.OrderBy(z => z.Z).ThenBy(z => z.X))
-                {
-                    var snapshot = ReadZone(zone);
-                    if (snapshot.PayloadVersion == 1)
-                    {
-                        LegacyCaptureCount++;
-                    }
-                    Cleanup.Observe(snapshot);
-                    IndexDeletions(snapshot);
-                    IndexDepartures(snapshot);
-                    signature.Append(zone.FileName).Append(':').Append(zone.Checksum).Append('\n');
-                    foreach (var item in snapshot.Objects)
-                    {
-                        Index(item);
-                    }
-                }
-                foreach (var deletion in _deleted)
-                {
-                    if (_latest.TryGetValue(deletion.Key, out var item) && item.ObservedUtcTicks <= deletion.Value)
-                    {
-                        _latest.Remove(deletion.Key);
-                    }
-                }
-                Fingerprint = StoreValidation.Hash(Encoding.UTF8.GetBytes(signature.ToString()));
+                IndexZones();
+                Cleanup.IndexCurrentObjects(_latest.Values);
                 Connections = _latest.Values.Where(v => v.ConnectionType != 0).ToArray();
             }
             catch
@@ -98,28 +63,16 @@ namespace Landoria.WorldCrawler.Restoration
             }
         }
 
-        // Indexes explicit removals globally so an older neighboring file cannot resurrect a moved object.
-        private void IndexDeletions(ZoneSnapshot snapshot)
+        // Indexes first observations and the distinct cleanup types from every validated zone file.
+        private void IndexZones()
         {
-            foreach (var item in snapshot.Deletions ?? new List<CapturedDeletion>())
+            foreach (var zone in Manifest.Zones.OrderBy(z => z.Z).ThenBy(z => z.X))
             {
-                var key = item.SourceUser + ":" + item.SourceId.ToString(CultureInfo.InvariantCulture);
-                if (!_deleted.TryGetValue(key, out var old) || old < item.ObservedUtcTicks)
+                var snapshot = ReadZone(zone);
+                Cleanup.Observe(snapshot);
+                foreach (var item in snapshot.Objects)
                 {
-                    _deleted[key] = item.ObservedUtcTicks;
-                }
-            }
-        }
-
-        // Suppresses old-position records superseded by an explicitly observed sector crossing.
-        private void IndexDepartures(ZoneSnapshot snapshot)
-        {
-            foreach (var item in snapshot.Departures ?? new List<CapturedDeparture>())
-            {
-                var key = item.SourceUser + ":" + item.SourceId.ToString(CultureInfo.InvariantCulture);
-                if (!_deleted.TryGetValue(key, out var old) || old < item.ObservedUtcTicks)
-                {
-                    _deleted[key] = item.ObservedUtcTicks;
+                    Index(item);
                 }
             }
         }
@@ -149,35 +102,7 @@ namespace Landoria.WorldCrawler.Restoration
             return snapshot;
         }
 
-        // Records exact accepted captures while allowing additional zones in the same export series.
-        public Dictionary<string, string> ZoneSignatures()
-        {
-            return Manifest.Zones.ToDictionary(zone => zone.X.ToString(CultureInfo.InvariantCulture) + ":" +
-                zone.Z.ToString(CultureInfo.InvariantCulture), zone => zone.CaptureVersion + ":" +
-                zone.ObjectCount.ToString(CultureInfo.InvariantCulture) + ":" + zone.Checksum, StringComparer.Ordinal);
-        }
-
-        // Refuses removed captures while allowing valid replacement snapshots within the same series.
-        public void RequirePresent(Dictionary<string, string> previous)
-        {
-            var current = ZoneSignatures();
-            if (previous == null || previous.Keys.Any(key => !current.ContainsKey(key)))
-            {
-                throw new InvalidDataException("Previously accepted zones disappeared from the export.");
-            }
-        }
-
-        // Refuses changed or removed old captures before extending an existing restoration.
-        public void RequireUnchanged(Dictionary<string, string> previous)
-        {
-            var current = ZoneSignatures();
-            if (previous == null || previous.Any(entry => !current.TryGetValue(entry.Key, out var value) || value != entry.Value))
-            {
-                throw new InvalidDataException("Previously accepted zone captures changed or disappeared. Restore their original files before resuming this target.");
-            }
-        }
-
-        // Deduplicates moving objects across sectors by source identity and observation time.
+        // Keeps the earliest exported copy when an older archive contains repeated source IDs.
         private void Index(CapturedObject item)
         {
             var key = Key(item);
@@ -187,7 +112,7 @@ namespace Landoria.WorldCrawler.Restoration
                 {
                     throw new InvalidDataException("A source identity refers to different prefabs.");
                 }
-                if (previous.ObservedUtcTicks >= item.ObservedUtcTicks)
+                if (previous.ObservedUtcTicks <= item.ObservedUtcTicks)
                 {
                     return;
                 }
@@ -196,7 +121,7 @@ namespace Landoria.WorldCrawler.Restoration
             _latest[key] = item;
         }
 
-        // Returns the latest unique observations owned by a target sector.
+        // Returns the first unique observations owned by a target sector.
         public List<CapturedObject> ZoneObjects(int x, int z)
         {
             var zone = Manifest.Zones.Single(v => v.X == x && v.Z == z);

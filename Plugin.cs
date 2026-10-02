@@ -1,4 +1,5 @@
 using BepInEx;
+using BepInEx.Configuration;
 using System;
 using HarmonyLib;
 using Landoria.WorldCrawler.Runtime;
@@ -20,23 +21,26 @@ namespace Landoria.WorldCrawler
         private RestorationController _restoration;
         private ExportMapOverlay _mapOverlay;
         private RecordingHud _recordingHud;
+        private ConfigEntry<bool> _enableCheats;
         private readonly LocalDaylight _daylight = new LocalDaylight();
 
         // Validates the runtime version before installing passive recording and protection hooks.
         private void Awake()
         {
             GameContext.ValidateVersion();
+            _enableCheats = Config.Bind("General", "EnableCheats", false,
+                "Enables god mode, ghost mode, cold immunity, unlimited stamina, and Alt-click map teleportation.");
             Flight.CharacterMarkerPolicy.Initialize(Logger);
-            var selection = new RestoreSelection();
             _harmony = new Harmony(PluginGuid);
             _harmony.PatchAll(typeof(Plugin).Assembly);
-            Flight.PlayerProtection.Enabled = true;
+            ApplySettings();
             _controller = new CrawlController(Logger);
-            _preparation = new WorldPreparation(selection, Logger);
-            _restoration = new RestorationController(selection, Logger);
+            _preparation = new WorldPreparation(Logger);
+            _restoration = new RestorationController(Logger);
             _mapOverlay = new ExportMapOverlay(Logger, _controller, _restoration);
             _recordingHud = new RecordingHud(Logger);
             _controller.ZoneSaved += _recordingHud.AddReport;
+            _restoration.ZoneRestored += _recordingHud.AddRestoreReport;
             Logger.LogInfo($"{PluginName} {PluginVersion} is loaded. F8: manual recording. F9: prepare world. F10: manual restoration.");
         }
 
@@ -47,13 +51,20 @@ namespace Landoria.WorldCrawler
             {
                 return;
             }
+            ApplySettings();
             Flight.CharacterMarkerPolicy.Enforce(Game.instance == null ? null : Game.instance.GetPlayerProfile());
             _daylight.Update();
             _preparation.Update();
             HandleShortcut();
             _controller.Update();
             _restoration.Update();
-            _recordingHud?.Update(_controller);
+            _recordingHud?.Update(_controller, _restoration);
+        }
+
+        // Applies the live BepInEx cheat setting to every optional player aid.
+        private void ApplySettings()
+        {
+            Flight.PlayerProtection.Enabled = _enableCheats != null && _enableCheats.Value;
         }
 
         // Dispatches shortcuts and reports when an active operation blocks manual cleanup.

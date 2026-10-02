@@ -25,6 +25,10 @@ namespace Landoria.WorldCrawler.Runtime
         // Requires only an owned and connected local player; recording never blocks map travel.
         private static bool CanTeleport()
         {
+            if (!PlayerProtection.Enabled)
+            {
+                return false;
+            }
             var player = Player.m_localPlayer;
             var alt = ZInput.GetKey(KeyCode.LeftAlt) || ZInput.GetKey(KeyCode.RightAlt);
             if (!alt || player == null || player.IsDead() || WorldGenerator.instance == null ||

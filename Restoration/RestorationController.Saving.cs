@@ -50,7 +50,6 @@ namespace Landoria.WorldCrawler.Restoration
                 }
             }
             _lastSaveUtc = DateTime.UtcNow.ToString("HH:mm:ss") + " UTC";
-            _session.Journal.State.LastNativeSaveUtc = DateTime.UtcNow.ToString("o");
             _session.Journal.Save();
             _applied.Clear();
             _validated.ExceptWith(_session.Journal.State.Completed);

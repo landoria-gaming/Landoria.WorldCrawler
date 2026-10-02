@@ -214,6 +214,7 @@ namespace Landoria.WorldCrawler.Runtime
                 RequestStop();
                 _store = _store ?? _preparation.TakeForShutdown();
                 JoinWrite();
+                _observer.AcceptExisting(_store.RecordedObjects);
                 if (_batch != null)
                 {
                     RecordingFlush.Write(_store, _batch, _version);

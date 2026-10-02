@@ -14,7 +14,6 @@ namespace Landoria.WorldCrawler.Restoration
     // Applies source files only around the manually moved player, with batched native checkpoints.
     internal sealed partial class RestorationController : IDisposable
     {
-        private readonly RestoreSelection _options;
         private readonly ManualLogSource _log;
         private RestoreSession _session;
         private RestorePhase _phase;
@@ -35,13 +34,29 @@ namespace Landoria.WorldCrawler.Restoration
         private bool _pause, _initialSave, _finalSave, _dirty, _finalized;
         private float _waitingSince, _lastSave, _retrySaveAt;
         private string _lastSaveUtc = "none";
+        private int _restoredObjects;
         public bool Active => _phase != RestorePhase.Idle && _phase != RestorePhase.Stopped;
         public bool Busy => Active || _closing != null && !_closing.IsCompleted;
+        internal event Action<ZoneSaveReport> ZoneRestored;
+        internal string HudStatus => !Active ? null : _pause ? "Finishing restoration..." :
+            Preparing ? "Preparing restoration..." : IsSavePhase() ? "Saving restoration..." : "Restoring...";
+
+        // Groups validation and backup phases that run before nearby zones can be restored.
+        private bool Preparing => _phase == RestorePhase.Preparing || _phase == RestorePhase.Preflight ||
+            _phase == RestorePhase.InitialSave || _phase == RestorePhase.Backup;
+
+        // Returns durable zone progress, pending checkpoints, and objects processed this session.
+        internal void GetHudStats(out int saved, out int total, out int pending, out int objects)
+        {
+            saved = _session?.Journal?.State?.Completed?.Count ?? 0;
+            total = _session?.Archive?.PlannedZoneCount ?? 0;
+            pending = _applied.Count;
+            objects = _restoredObjects;
+        }
 
         // Keeps export selection independent of this manual restore operation.
-        public RestorationController(RestoreSelection options, ManualLogSource log)
+        public RestorationController(ManualLogSource log)
         {
-            _options = options;
             _log = log;
         }
 
@@ -64,8 +79,7 @@ namespace Landoria.WorldCrawler.Restoration
                 }
                 _closing?.GetAwaiter().GetResult();
                 Reset();
-                _session = new RestoreSession(_options);
-                _session.Start();
+                _session = new RestoreSession();
                 _phase = RestorePhase.Preparing;
                 Say("Validating the export and prepared local world...");
             }
@@ -87,6 +101,9 @@ namespace Landoria.WorldCrawler.Restoration
             _applied.Clear();
             _unresolved.Clear();
             _retrySaveAt = 0f;
+            _restoredObjects = 0;
+            _cleanupIndex = 0;
+            _nextCleanup = 0f;
         }
 
         // Keeps all native APIs on the Unity thread and suspends mutation during native saves.
@@ -196,12 +213,10 @@ namespace Landoria.WorldCrawler.Restoration
                 return;
             }
             _warnings = new RestoreWarnings(_session.Journal.State.Warnings, message => _log.LogWarning(message));
-            if (_session.Archive.LegacyCaptureCount > 0)
-            {
-                AddWarning(_session.Archive.LegacyCaptureCount +
-                    " legacy captures retain their original evidence. Absence-based cleanup is disabled in those zones.");
-            }
-            _objects = new ObjectRestorer(_session.Journal.State.Fingerprint, _session.Journal.State,
+            var prefabs = _session.Archive.Cleanup.PrefabNames;
+            Say("Restoration source authority: " + prefabs.Length + " distinct prefabs across " +
+                _session.Archive.Manifest.Zones.Count + " exported zones: " + string.Join(", ", prefabs) + ".");
+            _objects = new ObjectRestorer(_session.World.Uid.ToString(System.Globalization.CultureInfo.InvariantCulture), _session.Journal.State,
                 _session.Archive.Cleanup, AddWarning);
             _scan = _session.Archive.Records.GetEnumerator();
             _phase = RestorePhase.Preflight;
@@ -268,14 +283,7 @@ namespace Landoria.WorldCrawler.Restoration
                 return;
             }
             _phase = RestorePhase.Stopped;
-            try
-            {
-                _session?.Fault(error.Message);
-            }
-            finally
-            {
-                Close();
-            }
+            Close();
             Say("Restoration interrupted. Unsaved work may need replay: " + error.Message);
         }
 
@@ -285,7 +293,6 @@ namespace Landoria.WorldCrawler.Restoration
             if (_session != null && _dirty && IsSavePhase() &&
                 GameContext.Ready(true) && GameContext.SameSession(_session.World, Player.m_localPlayer))
             {
-                _session.Journal.State.Completed.RemoveAll(key => _applied.Contains(key));
                 AddWarning("Native save not checkpointed; changes remain pending. F10 retries stopping: " + error.Message);
                 _initialSave = false;
                 _retrySaveAt = Time.unscaledTime + 5f;

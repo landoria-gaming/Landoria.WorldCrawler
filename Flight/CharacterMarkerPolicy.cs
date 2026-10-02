@@ -1,21 +1,17 @@
 using System;
-using System.IO;
 using System.Reflection;
 using BepInEx.Logging;
 using HarmonyLib;
-using Landoria.WorldCrawler.Restoration;
 using Landoria.WorldCrawler.Runtime;
 using Landoria.WorldCrawler.Storage;
 
 namespace Landoria.WorldCrawler.Flight
 {
-    // Keeps only the active character's cheat-history flag false while preserving its first native backup.
+    // Keeps the active character's cheat-history flag false only while optional cheats are enabled.
     internal static class CharacterMarkerPolicy
     {
         private static PlayerProfile _profile;
         private static FieldInfo _field;
-        private static CharacterCheatMarker _marker;
-        private static bool _busy;
         private static bool _failed;
         private static ManualLogSource _log;
 
@@ -25,10 +21,10 @@ namespace Landoria.WorldCrawler.Flight
             _log = log;
         }
 
-        // Applies before saves and each frame; recursive native backup saves retain their original flag.
+        // Applies in memory before native saves without keeping character files or identities on disk.
         internal static void Enforce(PlayerProfile candidate)
         {
-            if (_busy || !SupportedGameVersions.IsCurrent(GameContext.GameVersion) || Game.instance == null ||
+            if (!PlayerProtection.Enabled || !SupportedGameVersions.IsCurrent(GameContext.GameVersion) || Game.instance == null ||
                 Player.m_localPlayer == null || Minimap.instance == null || candidate == null || Game.instance.GetPlayerProfile() != candidate)
             {
                 return;
@@ -36,7 +32,6 @@ namespace Landoria.WorldCrawler.Flight
             if (_profile != candidate)
             {
                 _profile = candidate;
-                _marker = null;
                 _failed = false;
                 _field = AccessTools.Field(typeof(PlayerProfile), "m_usedCheats");
             }
@@ -47,31 +42,17 @@ namespace Landoria.WorldCrawler.Flight
             Reset();
         }
 
-        // Backs up once per loaded profile before enforcing the requested false value.
+        // Clears the single supported marker in the live profile; native saving owns persistence.
         private static void Reset()
         {
-            _busy = true;
             try
             {
-                if (_marker == null)
-                {
-                    _marker = new CharacterCheatMarker(Path.Combine(CrawlerConstants.ExportRoot, "_characters"),
-                        message => _log?.LogInfo(message));
-                    _marker.Begin();
-                }
-                else
-                {
-                    _field.SetValue(_profile, false);
-                }
+                _field.SetValue(_profile, false);
             }
             catch (Exception error)
             {
                 _failed = true;
-                _log?.LogError("Character marker was not reset; backup/save failed: " + error);
-            }
-            finally
-            {
-                _busy = false;
+                _log?.LogError("Character marker was not reset: " + error);
             }
         }
     }

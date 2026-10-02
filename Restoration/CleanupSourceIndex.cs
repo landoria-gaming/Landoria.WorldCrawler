@@ -5,28 +5,20 @@ using Landoria.WorldCrawler.Capture;
 
 namespace Landoria.WorldCrawler.Restoration
 {
-    // Limits cleanup to observed zones and object types that the export can reconstruct.
+    // Keeps the archive-wide prefab allowlist and source objects authoritative inside exported sectors.
     internal sealed class CleanupSourceIndex
     {
         private readonly Dictionary<int, HashSet<string>> _prefabs = new Dictionary<int, HashSet<string>>();
         private readonly Dictionary<int, HashSet<string>> _locations = new Dictionary<int, HashSet<string>>();
         private readonly Dictionary<string, List<CapturedObject>> _positions = new Dictionary<string, List<CapturedObject>>();
-        private readonly HashSet<string> _complete = new HashSet<string>();
-        private readonly HashSet<string> _sceneTypes = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _zones = new HashSet<string>();
+        internal string[] PrefabNames => _prefabs.Values.SelectMany(names => names).Distinct()
+            .OrderBy(name => name, StringComparer.Ordinal).ToArray();
 
-        // Indexes all observations, including older positions, so uncertain matches are preserved.
+        // Collects distinct prefab identities from every validated file, including passive recordings.
         internal void Observe(ZoneSnapshot snapshot)
         {
-            foreach (var node in snapshot.SceneNodes)
-            {
-                _sceneTypes.Add(SceneType(node.Name, node.Components));
-            }
-            if (snapshot.PayloadVersion >= 2 && snapshot.NearCoverageValidated && snapshot.InstancesValidated &&
-                snapshot.SceneValidated && snapshot.NaturalAbsenceComplete && snapshot.TerrainReady &&
-                (!snapshot.DungeonExpected || snapshot.DungeonEvidenceComplete))
-            {
-                _complete.Add(ZoneKey(snapshot.ZoneX, snapshot.ZoneZ));
-            }
+            _zones.Add(ZoneKey(snapshot.ZoneX, snapshot.ZoneZ));
             foreach (var item in snapshot.Objects)
             {
                 AddName(_prefabs, item.PrefabHash, item.PrefabName);
@@ -34,6 +26,15 @@ namespace Landoria.WorldCrawler.Restoration
                 {
                     AddName(_locations, item.LocationHash, item.LocationName);
                 }
+            }
+        }
+
+        // Indexes first source observations for merchant-site matching.
+        internal void IndexCurrentObjects(IEnumerable<CapturedObject> records)
+        {
+            _positions.Clear();
+            foreach (var item in records.Where(RestoreRecordPolicy.Include))
+            {
                 var key = PositionKey(item.PrefabHash, Cell(item.Position[0]), Cell(item.Position[2]));
                 if (!_positions.TryGetValue(key, out var values))
                 {
@@ -53,16 +54,10 @@ namespace Landoria.WorldCrawler.Restoration
                 (location == 0 || _locations.TryGetValue(location, out var locations) && locations.Contains(locationName));
         }
 
-        // Rejects static scene types that were never captured anywhere in the archive.
-        internal bool KnownScene(string name, IEnumerable<string> components)
+        // Authorizes reconciliation only where a validated zone file exists in the selected archive.
+        internal bool HasZone(int x, int z)
         {
-            return _sceneTypes.Contains(SceneType(name, components));
-        }
-
-        // Rejects uncaptured and partially observed zones independently of the current workflow.
-        internal bool Complete(int x, int z)
-        {
-            return _complete.Contains(ZoneKey(x, z));
+            return _zones.Contains(ZoneKey(x, z));
         }
 
         // Preserves source positions even before import and ignores rotation differences conservatively.
@@ -87,7 +82,7 @@ namespace Landoria.WorldCrawler.Restoration
             return false;
         }
 
-        // Requires every sector touched by a site's bounding square to be fully observed.
+        // Requires a source file for every sector touched by a site's bounding square.
         internal bool Covers(float x, float z, float radius)
         {
             if (float.IsNaN(radius) || float.IsInfinity(radius) || radius < 0f || radius > 512f)
@@ -98,19 +93,13 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 for (var zz = Sector(z - radius); zz <= Sector(z + radius); zz++)
                 {
-                    if (!Complete(zx, zz))
+                    if (!HasZone(zx, zz))
                     {
                         return false;
                     }
                 }
             }
             return true;
-        }
-
-        // Ignores Unity's clone suffix but requires the same observed component types.
-        private static string SceneType(string name, IEnumerable<string> components)
-        {
-            return name.Replace("(Clone)", "").Trim() + "|" + string.Join("|", components.OrderBy(v => v, StringComparer.Ordinal));
         }
 
         // Collects names without silently accepting a hash collision.

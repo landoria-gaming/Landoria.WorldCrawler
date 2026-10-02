@@ -9,7 +9,7 @@ namespace Landoria.WorldCrawler.Storage
     // Merges received observations without treating an unloaded or unseen object as deleted.
     internal static class ReceivedZoneMerge
     {
-        // Keeps the latest source identity and carries explicit removals across partial visits.
+        // Appends new identities without replacing objects or layouts previously exported.
         internal static ZoneSnapshot Merge(ZoneSnapshot previous, ZoneSnapshot received)
         {
             received = Copy(received);
@@ -22,16 +22,10 @@ namespace Landoria.WorldCrawler.Storage
                 throw new InvalidDataException("Cannot merge different recording sectors.");
             }
             received.Objects = MergeObjects(previous.Objects, received.Objects);
-            received.Deletions = (previous.Deletions ?? new List<CapturedDeletion>()).Concat(received.Deletions).GroupBy(v => v.SourceUser + ":" + v.SourceId)
-                .Select(g => g.OrderByDescending(v => v.ObservedUtcTicks).First()).ToList();
-            received.Departures = (previous.Departures ?? new List<CapturedDeparture>()).Concat(received.Departures).GroupBy(v => v.SourceUser + ":" + v.SourceId)
-                .Select(g => g.OrderByDescending(v => v.ObservedUtcTicks).First()).ToList();
-            var removed = received.Deletions.Select(v => Tuple.Create(v.SourceUser + ":" + v.SourceId, v.ObservedUtcTicks))
-                .Concat(received.Departures.Select(v => Tuple.Create(v.SourceUser + ":" + v.SourceId, v.ObservedUtcTicks)))
-                .GroupBy(v => v.Item1).ToDictionary(g => g.Key, g => g.Max(v => v.Item2));
-            received.Objects.RemoveAll(v => removed.TryGetValue(v.SourceUser + ":" + v.SourceId, out var at) && v.ObservedUtcTicks <= at);
+            received.Deletions = previous.Deletions ?? new List<CapturedDeletion>();
+            received.Departures = previous.Departures ?? new List<CapturedDeparture>();
             received.SceneNodes = previous.SceneNodes.Concat(received.SceneNodes).GroupBy(v => v.Root + ":" + v.Path)
-                .Select(g => g.Last()).ToList();
+                .Select(g => g.First()).ToList();
             received.StartedUtcTicks = previous.StartedUtcTicks > 0 ?
                 Math.Min(previous.StartedUtcTicks, received.StartedUtcTicks) : received.StartedUtcTicks;
             received.BuildSummaries();
@@ -57,10 +51,7 @@ namespace Landoria.WorldCrawler.Storage
                 {
                     throw new InvalidDataException("Conflicting prefabs for source identity " + group.Key);
                 }
-                var ordered = group.OrderByDescending(v => v.ObservedUtcTicks).ToList();
-                var newest = ordered[0].Copy();
-                newest.LocalScale = newest.LocalScale ?? ordered.FirstOrDefault(v => v.LocalScale != null)?.LocalScale;
-                return newest;
+                return group.First().Copy();
             }).ToList();
         }
     }
