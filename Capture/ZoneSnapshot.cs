@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
+using Landoria.WorldCrawler.Restoration.Persistence;
 
 namespace Landoria.WorldCrawler.Capture
 {
@@ -79,12 +80,6 @@ namespace Landoria.WorldCrawler.Capture
                 snapshot.Validate();
                 return snapshot;
             }
-        }
-
-        // Counts skipped fauna without exporting individual creature or player records.
-        public void SetExclusionCounts(IEnumerable<string> reasons)
-        {
-            ExclusionCounts = Count(reasons);
         }
 
         // Builds deterministic summaries without altering any captured source payload.

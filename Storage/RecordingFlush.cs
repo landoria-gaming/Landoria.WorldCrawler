@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Landoria.WorldCrawler.Capture;
+using Landoria.WorldCrawler.Restoration.Persistence;
 
 namespace Landoria.WorldCrawler.Storage
 {

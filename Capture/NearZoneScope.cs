@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using Landoria.WorldCrawler.Restoration.Persistence;
 using Landoria.WorldCrawler.Storage;
 using UnityEngine;
 
@@ -15,7 +16,6 @@ namespace Landoria.WorldCrawler.Capture
         private readonly Dictionary<string, ZoneEntry> _zones = new Dictionary<string, ZoneEntry>();
         private int _centerX = int.MinValue, _centerZ = int.MinValue, _radius;
         private bool _square;
-        public int Revision { get; private set; }
         public IEnumerable<ZoneEntry> Zones => _zones.Values;
 
         // Tracks only sectors the native near loader is responsible for, including unloaded arrivals.
@@ -31,7 +31,6 @@ namespace Landoria.WorldCrawler.Capture
             _centerZ = z;
             _radius = radius;
             _square = square;
-            Revision++;
             _zones.Clear();
             for (var dz = -radius; dz <= radius; dz++)
             {

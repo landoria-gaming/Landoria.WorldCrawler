@@ -11,7 +11,6 @@ namespace Landoria.WorldCrawler.Runtime
     {
         private readonly Task<WorldStore> _work;
         private bool _taken;
-        public Task ReleaseTask { get; private set; } = Task.CompletedTask;
 
         // Copies the small identity record before moving disk work off the Unity thread.
         public ExportPreparation(WorldIdentity world)
@@ -23,7 +22,7 @@ namespace Landoria.WorldCrawler.Runtime
         // Opens only the recording folder; old landmark folders remain untouched.
         private static WorldStore Open(WorldIdentity world, string version)
         {
-            var store = WorldStore.Open(CrawlerConstants.ExportRoot, world, false);
+            var store = WorldStore.Open(CrawlerConstants.ExportRoot, world);
             try
             {
                 store.PayloadValidator = ValidatePayload;
@@ -81,7 +80,7 @@ namespace Landoria.WorldCrawler.Runtime
                 return;
             }
             _taken = true;
-            ReleaseTask = _work.ContinueWith(task =>
+            _work.ContinueWith(task =>
             {
                 if (task.Status == TaskStatus.RanToCompletion)
                 {

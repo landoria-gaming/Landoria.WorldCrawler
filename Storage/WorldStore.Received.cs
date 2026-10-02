@@ -1,6 +1,6 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Collections.Generic;
 using Landoria.WorldCrawler.Capture;
 
 namespace Landoria.WorldCrawler.Storage

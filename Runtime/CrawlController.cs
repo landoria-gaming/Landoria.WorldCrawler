@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using BepInEx.Logging;
 using Landoria.WorldCrawler.Capture;
 using Landoria.WorldCrawler.Storage;
+using Landoria.WorldCrawler.UI;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Runtime

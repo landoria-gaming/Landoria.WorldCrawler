@@ -3,6 +3,8 @@ using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Xml;
+using Landoria.WorldCrawler.Capture;
+using Landoria.WorldCrawler.Restoration.Persistence;
 
 namespace Landoria.WorldCrawler.Storage
 {
@@ -47,13 +49,13 @@ namespace Landoria.WorldCrawler.Storage
         }
 
         // Opens existing progress or creates a new manifest under a safe world directory.
-        public static WorldStore Open(string root, WorldIdentity world, bool reconcile = true, string scope = null)
+        public static WorldStore Open(string root, WorldIdentity world)
         {
             if (world == null || world.SeedText == null || world.Name == null)
             {
                 throw new ArgumentException("A complete connected world identity is required.");
             }
-            var directory = Path.Combine(Path.GetFullPath(root), StoreValidation.DirectoryName(world, scope));
+            var directory = Path.Combine(Path.GetFullPath(root), StoreValidation.DirectoryName(world));
             Directory.CreateDirectory(directory);
             var worldLock = new FileStream(Path.Combine(directory, ".worldcrawler.lock"),
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -61,10 +63,6 @@ namespace Landoria.WorldCrawler.Storage
             try
             {
                 store.LoadManifest();
-                if (reconcile)
-                {
-                    store.Reconcile();
-                }
                 return store;
             }
             catch
@@ -98,7 +96,7 @@ namespace Landoria.WorldCrawler.Storage
         }
 
         // Commits a validated zone before checkpointing the corresponding manifest entry.
-        public void WriteZone(int x, int z, byte[] payload, string captureVersion, int objects)
+        private void WriteZone(int x, int z, byte[] payload, string captureVersion, int objects)
         {
             EnsureOpen();
             var entry = Manifest.Zones.SingleOrDefault(zone => zone.X == x && zone.Z == z)
@@ -108,7 +106,6 @@ namespace Landoria.WorldCrawler.Storage
             {
                 throw new ArgumentException("A bounded payload, version, and valid object count are required.");
             }
-            payload = MergeDeletions(x, z, payload);
             PayloadValidator?.Invoke(x, z, payload, captureVersion, objects);
             var snapshot = Capture.ZoneSnapshot.Decode(payload);
             payload = snapshot.Encode();
@@ -143,42 +140,6 @@ namespace Landoria.WorldCrawler.Storage
             MarkCaptured(entry, envelope);
             Save();
             RecordedObjects.UnionWith(snapshot.Objects.Select(item => item.SourceUser + ":" + item.SourceId));
-        }
-
-        // Carries confirmed removals forward when a later complete snapshot replaces the same sector.
-        private byte[] MergeDeletions(int x, int z, byte[] payload)
-        {
-            var snapshot = Capture.ZoneSnapshot.Decode(payload);
-            if (snapshot.PayloadVersion != 2 || !File.Exists(ZonePath(x, z)))
-            {
-                return payload;
-            }
-            try
-            {
-                var previous = Capture.ZoneSnapshot.Decode(ValidateEnvelope(
-                    AtomicJson.Read<ZoneEnvelope>(ZonePath(x, z)), x, z));
-                snapshot.Departures = snapshot.Departures.Concat(previous.Departures ??
-                    new System.Collections.Generic.List<Capture.CapturedDeparture>())
-                    .GroupBy(item => item.SourceUser + ":" + item.SourceId)
-                    .Select(group => group.OrderByDescending(item => item.ObservedUtcTicks).First()).ToList();
-                snapshot.Deletions = snapshot.Deletions.Concat(previous.Deletions ??
-                    new System.Collections.Generic.List<Capture.CapturedDeletion>())
-                    .GroupBy(item => item.SourceUser + ":" + item.SourceId)
-                    .Select(group => group.OrderByDescending(item => item.ObservedUtcTicks).First()).ToList();
-            }
-            catch (Exception error) when (IsInvalidFile(error))
-            {
-                throw new InvalidDataException("Previous deletion evidence cannot be read; old file preserved.", error);
-            }
-            return snapshot.Encode();
-        }
-
-        // Reads verified payload bytes for an inventoried zone.
-        public byte[] ReadZone(int x, int z)
-        {
-            EnsureOpen();
-            FindZone(x, z);
-            return ValidateEnvelope(AtomicJson.Read<ZoneEnvelope>(ZonePath(x, z)), x, z);
         }
 
         // Recovers valid orphan writes and makes damaged or interrupted captures retryable.
@@ -291,17 +252,6 @@ namespace Landoria.WorldCrawler.Storage
             var manifest = AtomicJson.Read<WorldManifest>(path);
             StoreValidation.Manifest(manifest, identity);
             return manifest;
-        }
-
-        // Locates only committed recording sectors.
-        private ZoneEntry FindZone(int x, int z)
-        {
-            var entry = Manifest.Zones.SingleOrDefault(zone => zone.X == x && zone.Z == z);
-            if (entry == null)
-            {
-                throw new InvalidOperationException("This zone is not in the committed recording.");
-            }
-            return entry;
         }
 
         // Resolves a generated basename instead of trusting a manifest-supplied path.

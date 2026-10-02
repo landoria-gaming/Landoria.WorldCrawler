@@ -1,4 +1,5 @@
 using System.Linq;
+using Landoria.WorldCrawler.Capture;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Restoration

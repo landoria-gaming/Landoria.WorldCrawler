@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using Landoria.WorldCrawler.Restoration.Persistence;
 
 namespace Landoria.WorldCrawler.Storage
 {
@@ -11,9 +12,8 @@ namespace Landoria.WorldCrawler.Storage
     internal static class StoreValidation
     {
         // Uses the world name and UID as the visible export directory.
-        internal static string DirectoryName(WorldIdentity world, string scope = null)
+        internal static string DirectoryName(WorldIdentity world)
         {
-            ValidateScope(scope);
             var invalid = Path.GetInvalidFileNameChars();
             var clean = new string(world.Name.Select(value => invalid.Contains(value) ||
                 value == '/' || value == '\\' || char.IsControl(value) ? '_' : value).Take(60).ToArray())
@@ -22,19 +22,7 @@ namespace Landoria.WorldCrawler.Storage
             {
                 clean = "World";
             }
-            return clean + "_" + world.Uid.ToString(CultureInfo.InvariantCulture) +
-                (scope == null ? "" : "_" + scope);
-        }
-
-        // Allows an optional short ASCII suffix without filesystem separators or traversal syntax.
-        private static void ValidateScope(string scope)
-        {
-            if (scope != null && (scope.Length == 0 || scope.Length > 60 || scope.Any(value =>
-                !(value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' ||
-                  value >= '0' && value <= '9' || value == '_' || value == '-'))))
-            {
-                throw new ArgumentException("The export scope must use 1 to 60 ASCII letters, digits, underscores or hyphens.", nameof(scope));
-            }
+            return clean + "_" + world.Uid.ToString(CultureInfo.InvariantCulture);
         }
 
         // Ignores manifest paths and constructs one safe basename for a zone.

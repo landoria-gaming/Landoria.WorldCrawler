@@ -40,11 +40,6 @@ namespace Landoria.WorldCrawler.Storage
         {
             get; set;
         }
-        [DataMember(Order = 18, EmitDefaultValue = false)]
-        public LandmarkSelection Selection
-        {
-            get; set;
-        }
         [DataMember(Order = 19)]
         public List<string> ReceivedPrefabs { get; set; } = new List<string>();
     }

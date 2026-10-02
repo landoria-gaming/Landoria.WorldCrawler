@@ -1,9 +1,13 @@
+using System;
 using BepInEx;
 using BepInEx.Configuration;
-using System;
 using HarmonyLib;
-using Landoria.WorldCrawler.Runtime;
+using Landoria.WorldCrawler.Commands;
+using Landoria.WorldCrawler.Protection;
 using Landoria.WorldCrawler.Restoration;
+using Landoria.WorldCrawler.Runtime;
+using Landoria.WorldCrawler.UI;
+using Landoria.WorldCrawler.WorldPreparation;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler
@@ -17,7 +21,7 @@ namespace Landoria.WorldCrawler
         internal const string PluginVersion = "1.0.1";
         private CrawlController _controller;
         private Harmony _harmony;
-        private WorldPreparation _preparation;
+        private WorldPreparationController _preparation;
         private RestorationController _restoration;
         private ExportMapOverlay _mapOverlay;
         private RecordingHud _recordingHud;
@@ -31,12 +35,12 @@ namespace Landoria.WorldCrawler
             GameContext.ValidateVersion();
             _enableCheats = Config.Bind("General", "EnableCheats", false,
                 "Enables god mode, ghost mode, cold immunity, unlimited stamina, and Alt-click map teleportation.");
-            Flight.CharacterMarkerPolicy.Initialize(Logger);
+            Protection.CharacterMarkerPolicy.Initialize(Logger);
             _harmony = new Harmony(PluginGuid);
             _harmony.PatchAll(typeof(Plugin).Assembly);
             ApplySettings();
             _controller = new CrawlController(Logger);
-            _preparation = new WorldPreparation(Logger);
+            _preparation = new WorldPreparationController(Logger);
             _restoration = new RestorationController(Logger);
             _indestructible = new IndestructibleCommand(Logger, () => _controller.Busy || _preparation.Busy, _restoration);
             _restoration.SceneryDeletionsPending = _indestructible.DeletionsPending;
@@ -55,7 +59,7 @@ namespace Landoria.WorldCrawler
                 return;
             }
             ApplySettings();
-            Flight.CharacterMarkerPolicy.Enforce(Game.instance == null ? null : Game.instance.GetPlayerProfile());
+            Protection.CharacterMarkerPolicy.Enforce(Game.instance == null ? null : Game.instance.GetPlayerProfile());
             _daylight.Update();
             _preparation.Update();
             HandleShortcut();
@@ -67,7 +71,7 @@ namespace Landoria.WorldCrawler
         // Applies the live BepInEx cheat setting to every optional player aid.
         private void ApplySettings()
         {
-            Flight.PlayerProtection.Enabled = _enableCheats != null && _enableCheats.Value;
+            Protection.PlayerProtection.Enabled = _enableCheats != null && _enableCheats.Value;
         }
 
         // Dispatches shortcuts and reports when an active operation blocks manual cleanup.
@@ -104,7 +108,7 @@ namespace Landoria.WorldCrawler
         // Flushes received data, restores local lighting and removes only this plugin's hooks.
         private void OnDestroy()
         {
-            Flight.PlayerProtection.Enabled = false;
+            Protection.PlayerProtection.Enabled = false;
             _indestructible?.Dispose();
             _daylight.Reset();
             try

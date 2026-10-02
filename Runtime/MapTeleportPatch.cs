@@ -1,5 +1,5 @@
 using HarmonyLib;
-using Landoria.WorldCrawler.Flight;
+using Landoria.WorldCrawler.Protection;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Runtime

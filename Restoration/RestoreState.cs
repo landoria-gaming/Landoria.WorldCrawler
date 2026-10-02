@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Landoria.WorldCrawler.Restoration.Objects;
 
 namespace Landoria.WorldCrawler.Restoration
 {

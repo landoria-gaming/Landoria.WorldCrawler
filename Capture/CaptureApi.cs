@@ -11,8 +11,6 @@ namespace Landoria.WorldCrawler.Capture
     {
         private readonly MethodInfo _getZone;
         private readonly MethodInfo _findObjects;
-        private readonly FieldInfo _zones;
-        private readonly FieldInfo _zoneRoot;
         private readonly FieldInfo _proxyInstance;
         private readonly FieldInfo _locationInstances;
         private readonly FieldInfo _locationPosition;
@@ -37,17 +35,14 @@ namespace Landoria.WorldCrawler.Capture
             _zoneY = RequiredField(coordinateType, "y");
             _legacy = coordinateType.Name == "Vector2i";
             _findObjects = ResolveFindObjects(coordinateType, out _distance);
-            _zones = RequiredField(typeof(ZoneSystem), "m_zones");
-            _zoneRoot = RequiredField(_zones.FieldType.GetGenericArguments()[1], "m_root");
             _proxyInstance = RequiredField(typeof(LocationProxy), "m_instance");
             _locationInstances = RequiredField(typeof(ZoneSystem), "m_locationInstances");
             var locationType = _locationInstances.FieldType.GetGenericArguments()[1];
             _locationPosition = RequiredField(locationType, "m_position");
             _locationDefinition = RequiredField(locationType, "m_location");
-            if (!typeof(IDictionary).IsAssignableFrom(_zones.FieldType)
-                || _zoneRoot.FieldType != typeof(GameObject) || _proxyInstance.FieldType != typeof(GameObject))
+            if (_proxyInstance.FieldType != typeof(GameObject))
             {
-                throw new NotSupportedException("The game's loaded-zone or location-proxy layout changed.");
+                throw new NotSupportedException("The game's location-proxy layout changed.");
             }
         }
 
@@ -60,15 +55,6 @@ namespace Landoria.WorldCrawler.Capture
                 ? new object[] { zone, 0, 0, destination, null }
                 : new object[] { zone, _distance, destination, null };
             _findObjects.Invoke(ZDOMan.instance, arguments);
-        }
-
-        // Reads the existing zone root without asking the game to generate or load anything.
-        internal GameObject GetZoneRoot(Vector3 center)
-        {
-            var zones = (IDictionary)_zones.GetValue(ZoneSystem.instance);
-            var zone = _getZone.Invoke(null, new object[] { center });
-            var data = zones[zone];
-            return data == null ? null : _zoneRoot.GetValue(data) as GameObject;
         }
 
         // Returns the client-spawned static location hierarchy once the proxy has finished loading.
