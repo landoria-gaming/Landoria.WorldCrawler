@@ -30,8 +30,10 @@ namespace Landoria.WorldCrawler.Restoration
             var keys = new HashSet<string>(_scope.Zones.Select(zone => ZoneKey(zone.X, zone.Z)));
             _visited.RemoveWhere(key => !keys.Contains(key));
             CleanupRestoredZone();
-            _zone = _session.Archive.Manifest.Zones.FirstOrDefault(zone =>
-                _scope.Contains(zone.X, zone.Z) && !_visited.Contains(ZoneKey(zone.X, zone.Z)));
+            _zone = _session.Archive.Manifest.Zones.Where(zone =>
+                    _scope.Contains(zone.X, zone.Z) && !_visited.Contains(ZoneKey(zone.X, zone.Z)))
+                .OrderBy(zone => Restored(ZoneKey(zone.X, zone.Z)) ? 1 : 0)
+                .FirstOrDefault();
             if (_zone == null)
             {
                 return;
@@ -42,6 +44,12 @@ namespace Landoria.WorldCrawler.Restoration
                 Records = archive.ZoneObjects(zoneToRead.X, zoneToRead.Z) });
             _waitingSince = Time.unscaledTime;
             _phase = RestorePhase.Reading;
+        }
+
+        // Gives never-restored amber zones priority over repair passes for green zones.
+        private bool Restored(string key)
+        {
+            return _applied.Contains(key) || _session.Journal.State.Completed.Contains(key);
         }
 
         // Silently suspends imports during teleports; native checkpoints may still finish.

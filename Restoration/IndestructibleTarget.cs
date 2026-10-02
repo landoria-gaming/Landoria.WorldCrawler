@@ -66,7 +66,7 @@ namespace Landoria.WorldCrawler.Restoration
                 !data.GetBool("tamed", false) && string.IsNullOrEmpty(data.GetString(ObjectRestorer.IdentityTag, ""));
         }
 
-        // Rejects actors, functional structures, destructible objects and independent child records.
+        // Allows known stone monuments while rejecting actors, functional structures and independent child records.
         private static bool Safe(GameObject root, ZNetView view, string name)
         {
             if (root == null || !root.activeInHierarchy ||
@@ -76,14 +76,20 @@ namespace Landoria.WorldCrawler.Restoration
                 return false;
             }
             var scripts = root.GetComponentsInChildren<MonoBehaviour>(true);
-            if (scripts.Any(script => script == null || script is IDestructible || script is Interactable ||
-                script is Piece || script is Trader || script is DungeonGenerator || script is TerrainComp ||
-                script is TerrainModifier || script is CreatureSpawner || script is TeleportWorld))
+            if (scripts.Any(Functional))
             {
                 return false;
             }
-            return (StoneSite(name) || scripts.All(Decorative)) &&
+            return (StoneSite(name) || scripts.All(script => Decorative(script) || script is IDestructible)) &&
                 root.GetComponentsInChildren<Collider>().Any(collider => collider.enabled && !collider.isTrigger);
+        }
+
+        // Excludes gameplay structures even when their root also looks like static scenery.
+        private static bool Functional(MonoBehaviour script)
+        {
+            return script == null || script is Interactable || script is Piece || script is Trader || script is DungeonGenerator ||
+                script is TerrainComp || script is TerrainModifier || script is CreatureSpawner ||
+                script is TeleportWorld || script is Container || script is ItemStand || script is ArmorStand;
         }
 
         // Recognizes the game's stone monuments without treating arbitrary locations as scenery.
