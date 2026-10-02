@@ -101,7 +101,7 @@ namespace Landoria.WorldCrawler.Capture
                 return false;
             }
             var definition = (ZoneSystem.ZoneLocation)_locationDefinition.GetValue(location);
-            if (Vector3.Distance((Vector3)_locationPosition.GetValue(location), center) > 0.1f ||
+            if (HorizontalDistance((Vector3)_locationPosition.GetValue(location), center) > 0.1f ||
                 definition == null || definition.m_prefabName.GetStableHashCode() != expectedHash)
             {
                 return false;
@@ -132,12 +132,20 @@ namespace Landoria.WorldCrawler.Capture
                 for (var index = values.Count - 1; index >= 0; index--)
                 {
                     var position = (Vector3)_locationPosition.GetValue(values[index]);
-                    if (Vector3.Distance(position, expected) < 0.1f)
+                    if (HorizontalDistance(position, expected) < 0.1f)
                     {
                         values.RemoveAt(index);
                     }
                 }
             }
+        }
+
+        // Location registries identify sites horizontally; their stored terrain height may differ from the proxy.
+        private static float HorizontalDistance(Vector3 first, Vector3 second)
+        {
+            var x = first.x - second.x;
+            var z = first.z - second.z;
+            return Mathf.Sqrt(x * x + z * z);
         }
 
         // Resolves a location hash through the local catalogue without generating any location.
