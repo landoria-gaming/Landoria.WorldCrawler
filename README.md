@@ -17,22 +17,24 @@ Sometimes, a world is simply too good to lose:
 
 | Key | Action |
 | --- | --- |
-| **F8** | Start or stop manual recording. |
+| **F8** | Start or stop recording received world data. |
 | **F9** | At the main menu, prepare a local world from the latest recording. |
-| **F10** | Start or stop manual restoration. |
-| **Movement keys / Jump / Crouch** | Fly horizontally / up / down at sprint ×4. |
-| **Alt + map click** | Teleport when data work is idle. |
+| **F10** | Start or stop restoration around you. |
+| **Alt + map click** | Teleport to the clicked location. |
+
+While the mod is loaded, your character has god, ghost, cold protection and unlimited stamina. Local daylight is set to **0.4** when entering a world. Movement stays normal: no forced flight or movement locks.
 
 ## How to use
 
 ### 1. Record the server world
 
-- Join the source world and press **F8**. Fly wherever you want to copy.
-- Nearby loaded zones are recorded, including their buildings, terrain and inventories. No pins or route planning are needed.
-- Movement pauses for useful data and validation, then resumes after two quiet seconds. Your character is protected from damage, enemies and cold.
-- **Green rectangles** show saved zones. Incomplete observations are never exported.
-- Press **F8** to stop in place. Start again later to record more or update visited zones without duplicates.
-- Keep the whole recording folder in `BepInEx/config/WorldCrawler/worlds`.
+- Join the source world and press **F8**. Walk, run, sail or teleport wherever you want to record.
+- Received objects are copied into a cache immediately, then saved every **10 seconds**. Leaving a zone does not discard its cached data.
+- Every **5 seconds**, **Recording** shows unique zones and objects saved since this session began, plus objects still cached. Objects awaiting a write, including new updates, count only as cached until the write succeeds.
+- **Green rectangles** show saved received data; **amber** shows unsaved cache updates. They do not prove that the server sent every object in a zone.
+- Press **F8** again for the final flush. Wait for the saved confirmation before closing the game.
+- Revisit or restart freely: objects are updated by their source IDs, without duplicates. Players and creatures are excluded.
+- Keep the whole folder in `BepInEx/config/WorldCrawler/worlds`. A sudden crash can lose data still in memory since the last successful flush.
 - Recording supports **0.221.12 and 1.0.x**. The next two steps require **1.0.x**.
 
 ### 2. Create the local world
@@ -41,12 +43,11 @@ At the main menu, press **F9** and confirm **Yes**. The latest recording supplie
 
 ### 3. Restore the recorded areas
 
-- Enter the new local world and press **F10**. Fly where you want to restore it.
-- Nearby recorded zones are restored, cleaned and checked. Revisiting a zone safely reapplies it without duplicates.
-- **Amber** means a recorded zone still needs restoration or saving; **green** means restored and saved.
-- The world saves every **two minutes** when changes exist, at the next safe boundary. Press **F10** to stop and wait for the final save.
-- Movement pauses during actual work, not while waiting for the next scheduled save. No automatic travel or return to the start.
-- Safety backups are kept. Cleanup protects creatures and unrelated player builds, and never removes types absent from the recording.
+- Enter the new local world and press **F10**. Move freely to the recorded areas; no forced flight or pauses.
+- Nearby objects are restored without duplicates. Leaving during restoration keeps unfinished work pending for a later visit.
+- **Amber** means available but not yet restored and saved; **green** means restored and saved.
+- The world saves every **two minutes** at a safe boundary. Press **F10** again for the final save.
+- Received-only recordings never authorize deleting scenery merely because it was not seen. Explicit source deletion records remain supported.
 
 ## Screenshot
 

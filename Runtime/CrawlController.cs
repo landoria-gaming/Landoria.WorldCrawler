@@ -1,15 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using BepInEx.Logging;
 using Landoria.WorldCrawler.Capture;
-using Landoria.WorldCrawler.Flight;
 using Landoria.WorldCrawler.Storage;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Records complete locally validated sectors while the player alone chooses where to travel.
+    // Passively records received data; the native game owns movement, physics and teleports.
     internal sealed partial class CrawlController : IDisposable
     {
         private readonly ManualLogSource _log;
@@ -17,76 +17,91 @@ namespace Landoria.WorldCrawler.Runtime
         private WorldStore _store;
         private WorldIdentity _world;
         private Player _player;
-        private FlightController _flight;
         private RecordingObserver _observer;
-        private ReceiveMotionGate _motionGate;
-        private ZoneCaptureSession _capture;
-        private ZoneEntry _zone;
         private Task _write;
-        private Task _closing;
+        private List<ZoneSnapshot> _batch;
         private CrawlPhase _phase;
-        private long _writeRevision;
-        private float _nextMessage;
+        private float _nextFlush, _nextMessage, _nextDiagnostic;
         private bool _stop;
-        private string _stall;
+        private string _version;
         private float _retryAt;
         private ExportMapOverlayData _map;
-        public bool Busy => Active || _closing != null && !_closing.IsCompleted;
+        private List<ZoneEntry> _committed = new List<ZoneEntry>();
+        private long _reportedErrors;
+        private readonly HashSet<string> _savedObjectIds = new HashSet<string>();
+        private readonly HashSet<string> _savedZones = new HashSet<string>();
+        public bool Busy => Active;
         private bool Active => _phase != CrawlPhase.Idle && _phase != CrawlPhase.Stopped;
 
-        // Captures logging without starting any world operation.
+        // Keeps logging separate from the lifetime of each connected source world.
         public CrawlController(ManualLogSource log)
         {
             _log = log;
         }
 
-        // Starts recording or cancels unfinished observations after any validated disk write.
+        // F8 freezes new receipts and drains the cache instead of discarding unfinished sectors.
         public void Toggle()
         {
             try
             {
                 if (Active)
                 {
-                    _stop = true;
-                    Say("Stopping recording; unfinished observations will not be exported.");
+                    RequestStop();
                 }
-                else if (!Busy)
+                else
                 {
                     Start();
                 }
             }
             catch (Exception error)
             {
-                Fail(error);
+                _log.LogError("Recording control failed: " + error);
             }
         }
 
-        // Acquires protected manual flight at the current position before loading the recording store.
+        // Attaches reception before asynchronous store preparation and leaves the character untouched.
         private void Start()
         {
             if (!GameContext.Ready())
             {
-                Say("Join a world and wait for your character before pressing F8.");
+                Say("Join a world before pressing F8.");
                 return;
             }
-            _closing?.GetAwaiter().GetResult();
-            _closing = null;
             _world = GameContext.Identity();
+            _version = GameContext.GameVersion;
             _player = Player.m_localPlayer;
             _stop = false;
-            _map = null;
-            _stall = null;
-            _zone = null;
-            _flight = new FlightController();
-            _flight.Begin(_player, _player.transform.position, _player.transform.rotation);
-            _motionGate = new ReceiveMotionGate(_player, CrawlerConstants.ZoneTimeout);
-            _observer = new RecordingObserver();
-            _preparation = new ExportPreparation(_world);
+            _retryAt = 0f;
+            _batch = null;
+            _map = new ExportMapOverlayData();
+            _committed.Clear();
+            _reportedErrors = 0;
+            _savedObjectIds.Clear();
+            _savedZones.Clear();
+            _nextFlush = Time.realtimeSinceStartup + CrawlerConstants.RecordingFlushInterval;
+            _nextDiagnostic = _nextMessage = 0f;
+            _observer = new RecordingObserver(_world.Uid);
+            PrepareStore();
             _phase = CrawlPhase.Preparing;
-            Say("Opening recording. F8 stops; you control all movement.");
+            Say("Recording received data. Disk flush every 10 seconds; movement is unrestricted.");
         }
 
-        // Performs bounded main-thread work before allowing the next manual movement step.
+        // Detaches the observer if setup fails before it can own a recoverable disk store.
+        private void PrepareStore()
+        {
+            try
+            {
+                _preparation = new ExportPreparation(_world);
+            }
+            catch
+            {
+                _observer.Dispose();
+                _observer = null;
+                throw;
+            }
+        }
+
+        // Drains completed workers even during a teleport or paused gameplay.
         public void Update()
         {
             if (!Active)
@@ -95,132 +110,140 @@ namespace Landoria.WorldCrawler.Runtime
             }
             try
             {
-                CheckSession();
-                if (_stop && _phase != CrawlPhase.Writing)
+                if (!_stop && (!GameContext.SameSession(_world, _player) || _player == null || _player.IsDead()))
                 {
-                    Stop();
+                    RequestStop();
+                }
+                if (Time.realtimeSinceStartup < _retryAt)
+                {
+                    Report();
                     return;
                 }
-                if (Time.timeScale <= 0f || Transit())
+                if (!_stop)
                 {
-                    return;
+                    _observer.Step(_player.transform.position);
                 }
-                _observer.Step(_player.transform.position);
                 Advance();
                 if (Active)
                 {
-                    _flight.TickManual(_phase != CrawlPhase.Waiting || _observer.Pending > 0 ||
-                        _motionGate.Hold(), Time.unscaledDeltaTime);
                     Report();
                 }
             }
             catch (Exception error)
             {
-                Fail(error);
+                _log.LogError("Recording failed; cached data is retained for retry: " + error);
+                _nextFlush = _retryAt = Time.realtimeSinceStartup + 5f;
             }
         }
 
-        // Rejects disconnection without serializing the incomplete in-memory sector.
-        private void CheckSession()
+        // Stops new observations but retains all detached values through the final disk commit.
+        private void RequestStop()
         {
-            if (!GameContext.SameSession(_world, _player) || _player.IsDead())
+            if (!_stop)
             {
-                throw new InvalidOperationException("Recording disconnected or lost its living character.");
+                _observer.Freeze();
+                _stop = true;
+                Say("Stopping recording; flushing all cached data. Movement remains unrestricted.");
             }
+            _nextFlush = 0f;
+            _retryAt = 0f;
         }
 
-        // Publishes immutable geometry only after a worker has finished its manifest commit.
+        // Returns only durable rectangles; dirty cached sectors are shown separately.
         internal ExportMapOverlayData MapProgress()
         {
-            return Active ? _map ?? new ExportMapOverlayData() : null;
+            return Active ? _map : null;
         }
 
-        // Displays actual committed progress, with no invented planned total or percentage.
+        // Shows real cache size and periodic diagnostics rather than a misleading pending-zone lock.
         private void Report()
         {
-            if (Time.unscaledTime < _nextMessage)
+            if (Time.realtimeSinceStartup < _nextMessage)
             {
                 return;
             }
-            _nextMessage = Time.unscaledTime + 5f;
-            var count = _phase == CrawlPhase.Writing ? "committing" :
-                (_store?.Manifest.Zones.Count(zone => zone.Status == "captured") ?? 0).ToString();
-            var work = _stall ?? _capture?.Status ?? (_observer.Pending > 0 ?
-                "Validating loaded zones; movement locked" : _motionGate.Hold() ? "Waiting for 2 quiet seconds" : "Move to record");
-            HudNotification.Show("Recording | " + count + " zones saved | " +
-                _observer.Pending + " pending | " + work);
+            _nextMessage = Time.realtimeSinceStartup + 5f;
+            RefreshMap();
+            var cached = CachedObjectKeys();
+            HudNotification.Show("Recording | " + _savedZones.Count + " zones saved | " +
+                _savedObjectIds.Count(id => !cached.Contains(id)) + " objects saved | " + cached.Count + " objects cached");
+            LogRecordingProgress();
         }
 
-        // Logs visible state changes without flooding the log with per-frame progress.
+        // Finishes in place without modifying native player controls or physics.
+        private void Finish()
+        {
+            var errors = _observer.Errors;
+            _store.Manifest.CrawlState = errors == 0 ? "stopped" : "stopped-with-errors";
+            _store.Manifest.LastError = errors == 0 ? null : _observer.LastError;
+            _store.Save();
+            _observer.Dispose();
+            _store.Dispose();
+            _observer = null;
+            _store = null;
+            _phase = CrawlPhase.Stopped;
+            Say("Recording stopped; all cached data saved." + (errors == 0 ? "" :
+                " WARNING: " + errors + " object capture errors; check the log."));
+        }
+
+        // Keeps visible messages short while retaining full errors in the BepInEx log.
         private void Say(string message)
         {
             _log.LogInfo(message);
             HudNotification.Show(message);
         }
 
-        // Retains validated files and releases control in place when a session fails.
-        private void Fail(Exception error)
+        // Joins file workers and flushes the last cache on orderly plugin shutdown.
+        public void Dispose()
         {
-            _log.LogError("Recording interrupted: " + error);
-            Say("Recording interrupted. Saved files preserved; unfinished observations discarded.");
-            Close(error.Message);
-        }
-
-        // Stops in place after the current atomic write, never saving incomplete observations.
-        private void Stop()
-        {
-            Say("Recording stopped. " + (_observer?.Pending ?? 0) + " unfinished observations were not exported.");
-            Close(null);
-        }
-
-        // Observes outstanding file work before releasing its exclusive store lock.
-        private void Close(string error)
-        {
-            _phase = CrawlPhase.Stopped;
-            _capture?.Dispose();
-            _capture = null;
-            _observer?.Dispose();
-            _observer = null;
-            _motionGate?.Dispose();
-            _motionGate = null;
-            _flight?.Abort();
-            _flight = null;
-            _preparation?.Dispose();
-            var preparation = _preparation?.ReleaseTask ?? Task.CompletedTask;
-            _preparation = null;
-            var store = _store;
-            var write = _write ?? Task.CompletedTask;
-            _store = null;
-            _write = null;
-            _closing = Task.WhenAll(preparation, write).ContinueWith(task => Release(store, error, task.Exception));
-        }
-
-        // Checkpoints a stopped recording only after any earlier worker has finished.
-        private void Release(WorldStore store, string error, Exception writeError)
-        {
+            if (!Active)
+            {
+                return;
+            }
             try
             {
-                if (writeError != null)
+                RequestStop();
+                _store = _store ?? _preparation.TakeForShutdown();
+                JoinWrite();
+                if (_batch != null)
                 {
-                    _log.LogError(writeError);
+                    RecordingFlush.Write(_store, _batch, _version);
                 }
-                if (store != null)
+                var last = _observer.TakeBatch();
+                if (last.Count != 0)
                 {
-                    store.Manifest.CrawlState = error == null ? "stopped" : "interrupted";
-                    store.Manifest.LastError = error ?? writeError?.Message;
-                    store.Save();
+                    RecordingFlush.Write(_store, last, _version);
                 }
+                Finish();
+            }
+            catch (Exception error)
+            {
+                _log.LogError("Final recording flush failed; pending checkpoint retained when available: " + error);
             }
             finally
             {
-                store?.Dispose();
+                _observer?.Dispose();
+                _store?.Dispose();
+                _preparation?.Dispose();
             }
         }
 
-        // Releases hooks and locks without silently flushing partial captures on shutdown.
-        public void Dispose()
+        // Retains a failed detached batch for one final retry during orderly shutdown.
+        private void JoinWrite()
         {
-            Close("Plugin unloaded before recording stopped.");
+            if (_write == null)
+            {
+                return;
+            }
+            try
+            {
+                _write.GetAwaiter().GetResult();
+                _batch = null;
+            }
+            catch (Exception error)
+            {
+                _log.LogWarning("Retrying interrupted flush: " + error.Message);
+            }
         }
     }
 }

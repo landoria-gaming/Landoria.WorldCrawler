@@ -51,6 +51,10 @@ namespace Landoria.WorldCrawler.Restoration
                 FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             try
             {
+                if (File.Exists(Path.Combine(DirectoryPath, RecordingFlush.FileName)))
+                {
+                    throw new InvalidDataException("An interrupted recording flush remains. Resume F8 to recover it before F9 or F10.");
+                }
                 Manifest = AtomicJson.Read<WorldManifest>(Path.Combine(DirectoryPath, "manifest.json"));
                 StoreValidation.Manifest(Manifest, Manifest.World);
                 PlannedZoneCount = Manifest.Zones.Count;
@@ -137,8 +141,8 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 throw new InvalidDataException("The zone payload does not match its envelope.");
             }
-            if (!snapshot.NaturalAbsenceComplete || !snapshot.TerrainReady || snapshot.StableSeconds < 2f ||
-                snapshot.DungeonExpected && !snapshot.DungeonEvidenceComplete)
+            if (snapshot.PayloadVersion < 3 && (!snapshot.NaturalAbsenceComplete || !snapshot.TerrainReady || snapshot.StableSeconds < 2f ||
+                snapshot.DungeonExpected && !snapshot.DungeonEvidenceComplete))
             {
                 throw new InvalidDataException("The source zone has incomplete loading evidence; destination unchanged.");
             }

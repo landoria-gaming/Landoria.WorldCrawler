@@ -2,14 +2,14 @@ using HarmonyLib;
 
 namespace Landoria.WorldCrawler.Flight
 {
-    // Removes environmental cold effects after the game has evaluated the controlled player.
+    // Removes environmental cold effects after the game has evaluated the protected local player.
     [HarmonyPatch(typeof(Player), "UpdateEnvStatusEffects", new[] { typeof(float) })]
     internal static class ColdProtectionPatch
     {
-        // Leaves every other environmental status untouched and applies only during F8 control.
+        // Leaves every other environmental status untouched and applies only while the plugin is active.
         private static void Postfix(Player __instance)
         {
-            if (!FlightController.IsControlled(__instance))
+            if (!PlayerProtection.Applies(__instance))
             {
                 return;
             }

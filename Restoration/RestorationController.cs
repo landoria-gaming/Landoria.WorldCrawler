@@ -20,7 +20,6 @@ namespace Landoria.WorldCrawler.Restoration
         private RestorePhase _phase;
         private ObjectRestorer _objects;
         private RestoreWarnings _warnings;
-        private ReceiveMotionGate _motionGate;
         private readonly NearZoneScope _scope = new NearZoneScope();
         private readonly HashSet<string> _visited = new HashSet<string>();
         private readonly HashSet<string> _validated = new HashSet<string>();
@@ -55,7 +54,7 @@ namespace Landoria.WorldCrawler.Restoration
                 {
                     _pause = true;
                     _retrySaveAt = 0f;
-                    Say("Stopping restoration; saving changes before releasing flight.");
+                    Say("Stopping restoration; saving changes. Movement remains unrestricted.");
                     return;
                 }
                 if (Busy)
@@ -66,8 +65,7 @@ namespace Landoria.WorldCrawler.Restoration
                 _closing?.GetAwaiter().GetResult();
                 Reset();
                 _session = new RestoreSession(_options);
-                _session.StartFlight(CrawlerConstants.Speed);
-                _motionGate = new ReceiveMotionGate(Player.m_localPlayer, CrawlerConstants.ZoneTimeout);
+                _session.Start();
                 _phase = RestorePhase.Preparing;
                 Say("Validating the export and prepared local world...");
             }
@@ -112,8 +110,6 @@ namespace Landoria.WorldCrawler.Restoration
                 }
                 if (Active)
                 {
-                    _session.Flight.TickManual(_phase != RestorePhase.Waiting || _motionGate.Hold() ||
-                        ZNet.instance.IsSaving(), Time.unscaledDeltaTime);
                     ShowProgress();
                 }
             }
@@ -262,7 +258,7 @@ namespace Landoria.WorldCrawler.Restoration
         {
             _log.LogError("Restoration phase=" + _phase + "; zone=" +
                 (_zone == null ? "none" : ZoneKey(_zone.X, _zone.Z)) + ": " + error);
-            if (_session?.Flight?.Active == true && GameContext.Ready(true) &&
+            if (_session != null && GameContext.Ready(true) &&
                 GameContext.SameSession(_session.World, Player.m_localPlayer) && _dirty && !IsSavePhase())
             {
                 AddWarning("Incomplete work remains pending: " + error.Message);
@@ -290,7 +286,7 @@ namespace Landoria.WorldCrawler.Restoration
         // Retains the live protected session and pending changes while a failed native save is retried.
         private bool RetryFailedSave(Exception error)
         {
-            if (_session?.Flight?.Active == true && _dirty && IsSavePhase() &&
+            if (_session != null && _dirty && IsSavePhase() &&
                 GameContext.Ready(true) && GameContext.SameSession(_session.World, Player.m_localPlayer))
             {
                 _session.Journal.State.Completed.RemoveAll(key => _applied.Contains(key));
@@ -308,8 +304,6 @@ namespace Landoria.WorldCrawler.Restoration
         private void Close()
         {
             RestoreProtection.Clear();
-            _motionGate?.Dispose();
-            _motionGate = null;
             _scan?.Dispose();
             _scan = null;
             var session = _session;
@@ -318,7 +312,6 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return;
             }
-            session.Flight?.Abort();
             var workers = Task.WhenAll((Task)_read ?? Task.CompletedTask, (Task)_backup ?? Task.CompletedTask);
             _read = null;
             _backup = null;

@@ -18,7 +18,7 @@ namespace Landoria.WorldCrawler.Capture
             var prefab = ZNetScene.instance.GetPrefab(hash);
             if (prefab == null)
             {
-                throw new InvalidOperationException("Received an unknown prefab: " + hash);
+                return 1;
             }
             policy = CaptureExclusionPolicy.Classify(prefab) != null ? 0 : 1;
             _policies.Add(hash, policy);

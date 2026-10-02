@@ -123,7 +123,6 @@ namespace Landoria.WorldCrawler.Restoration
             _log.LogInfo("Applied zone " + ZoneKey(_zone.X, _zone.Z) + "; awaiting native save or unresolved links.");
             _writer = null;
             _zone = null;
-            ReceiveMotionGate.Worked();
             if (!_finalized && _session.Journal.State.Completed.Concat(_applied).Distinct().Count() ==
                 _session.Archive.PlannedZoneCount)
             {
@@ -165,7 +164,6 @@ namespace Landoria.WorldCrawler.Restoration
                     target.Set("WorldCrawler.pending", false);
                     ObjectRestorer.Refresh(target);
                     _dirty = true;
-                    ReceiveMotionGate.Worked();
                 }
             }
         }

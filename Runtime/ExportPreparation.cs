@@ -32,6 +32,7 @@ namespace Landoria.WorldCrawler.Runtime
                 store.PayloadValidator = ValidatePayload;
                 store.BeginRecording(id, name, version);
                 store.Reconcile();
+                RecordingFlush.Recover(store);
                 return store;
             }
             catch
@@ -66,6 +67,13 @@ namespace Landoria.WorldCrawler.Runtime
             _taken = true;
             store = _work.GetAwaiter().GetResult();
             return true;
+        }
+
+        // Joins preparation only during plugin shutdown so buffered data can still be flushed.
+        public WorldStore TakeForShutdown()
+        {
+            _taken = true;
+            return _work.GetAwaiter().GetResult();
         }
 
         // Releases a late result when recording stops during initialization.

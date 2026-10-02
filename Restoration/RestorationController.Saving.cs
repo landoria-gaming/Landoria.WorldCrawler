@@ -13,7 +13,6 @@ namespace Landoria.WorldCrawler.Restoration
             _initialSave = initial;
             _finalSave = final;
             _waitingSince = Time.unscaledTime;
-            _session.Flight?.LockMovement();
             _phase = RestorePhase.RequestSave;
         }
 
@@ -57,7 +56,6 @@ namespace Landoria.WorldCrawler.Restoration
             _validated.ExceptWith(_session.Journal.State.Completed);
             _dirty = false;
             _lastSave = Time.unscaledTime;
-            ReceiveMotionGate.Worked();
             _log.LogInfo("Native restoration checkpoint saved at " + _lastSaveUtc + ".");
             if (_finalSave)
             {

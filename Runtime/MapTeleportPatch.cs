@@ -8,15 +8,9 @@ namespace Landoria.WorldCrawler.Runtime
     [HarmonyPatch(typeof(Minimap), nameof(Minimap.OnMapLeftClick))]
     internal static class MapTeleportPatch
     {
-        // Replaces the ordinary map click only while the client owns an idle connected character.
+        // Replaces the ordinary map click only while the client owns a connected character.
         private static bool Prefix(Minimap __instance)
         {
-            if ((ZInput.GetKey(KeyCode.LeftAlt) || ZInput.GetKey(KeyCode.RightAlt)) &&
-                FlightController.BlocksManualTeleport(Player.m_localPlayer))
-            {
-                HudNotification.Show("Data work in progress; teleport is blocked. Try again when movement resumes.");
-                return false;
-            }
             if (!CanTeleport() || !TryGetMapPosition(__instance, out var destination))
             {
                 return true;
@@ -28,14 +22,13 @@ namespace Landoria.WorldCrawler.Runtime
             return false;
         }
 
-        // Restricts manual map travel while no crawler flight owns the connected local player.
+        // Requires only an owned and connected local player; recording never blocks map travel.
         private static bool CanTeleport()
         {
             var player = Player.m_localPlayer;
             var alt = ZInput.GetKey(KeyCode.LeftAlt) || ZInput.GetKey(KeyCode.RightAlt);
             if (!alt || player == null || player.IsDead() || WorldGenerator.instance == null ||
-                ZNet.instance == null || ZNet.GetConnectionStatus() != ZNet.ConnectionStatus.Connected ||
-                FlightController.BlocksManualTeleport(player))
+                ZNet.instance == null || ZNet.GetConnectionStatus() != ZNet.ConnectionStatus.Connected)
             {
                 return false;
             }

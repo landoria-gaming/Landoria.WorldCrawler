@@ -32,10 +32,6 @@ namespace Landoria.WorldCrawler.Restoration
         {
             get; private set;
         }
-        public FlightController Flight
-        {
-            get; private set;
-        }
         public Task ReleaseTask { get; private set; } = Task.CompletedTask;
 
         // Validates local ownership before opening a target-bound recovery journal.
@@ -64,14 +60,7 @@ namespace Landoria.WorldCrawler.Restoration
             }
             catch
             {
-                try
-                {
-                    Flight?.Abort();
-                }
-                finally
-                {
-                    Journal.Dispose();
-                }
+                Journal.Dispose();
                 throw;
             }
         }
@@ -118,15 +107,9 @@ namespace Landoria.WorldCrawler.Restoration
             _characterMarker?.Clear();
         }
 
-        // Starts protected travel from the current position, never a saved origin.
-        public void StartFlight(float speed)
+        // Marks the local operation active without taking control of the character.
+        public void Start()
         {
-            if (Flight != null && Flight.Active)
-            {
-                return;
-            }
-            Flight = new FlightController { Speed = speed };
-            Flight.Begin(_player, _player.transform.position, _player.transform.rotation);
             Journal.State.Status = "restoring";
             Journal.State.Error = null;
             Journal.Save();
@@ -135,32 +118,18 @@ namespace Landoria.WorldCrawler.Restoration
         // Retains recoverable progress after failures without claiming an emergency return succeeded.
         public void Fault(string message)
         {
-            try
-            {
-                Flight?.Abort();
-            }
-            finally
-            {
-                Journal.State.Status = "faulted";
-                Journal.State.Error = message;
-                Journal.Save();
-            }
+            Journal.State.Status = "faulted";
+            Journal.State.Error = message;
+            Journal.Save();
         }
 
         // Releases a late worker result and returns a task callers can await before restarting.
         public void Dispose()
         {
-            try
-            {
-                Flight?.Abort();
-            }
-            finally
-            {
-                DisposeResources();
-            }
+            DisposeResources();
         }
 
-        // Releases file-only resources after the main thread has handled controlled flight.
+        // Releases file-only resources after the operation has stopped touching the world.
         public void DisposeResources()
         {
             Archive?.Dispose();
@@ -178,8 +147,7 @@ namespace Landoria.WorldCrawler.Restoration
                     {
                         var observed = task.Exception;
                     }
-                }
-, TaskScheduler.Default);
+                }, TaskScheduler.Default);
                 _loading = null;
             }
         }

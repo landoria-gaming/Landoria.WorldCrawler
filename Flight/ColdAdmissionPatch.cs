@@ -2,14 +2,14 @@ using HarmonyLib;
 
 namespace Landoria.WorldCrawler.Flight
 {
-    // Rejects cold effects before their startup messages and visuals run during controlled flight.
+    // Rejects cold effects before their startup messages and visuals run while the plugin is active.
     [HarmonyPatch(typeof(StatusEffect), "CanAdd", new[] { typeof(Character) })]
     internal static class ColdAdmissionPatch
     {
-        // Leaves all other effects and all uncontrolled characters on their native path.
+        // Leaves all other effects and all other characters on their native path.
         private static bool Prefix(StatusEffect __instance, Character character, ref bool __result)
         {
-            if (!FlightController.IsControlled(character))
+            if (!PlayerProtection.Applies(character))
             {
                 return true;
             }

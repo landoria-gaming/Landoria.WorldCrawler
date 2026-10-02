@@ -7,7 +7,7 @@ using System.Xml;
 namespace Landoria.WorldCrawler.Storage
 {
     // Owns an exclusive, restartable world export with one committed file per zone.
-    public sealed class WorldStore : IDisposable
+    public sealed partial class WorldStore : IDisposable
     {
         private readonly WorldIdentity identity;
         private readonly FileStream directoryLock;
@@ -138,7 +138,7 @@ namespace Landoria.WorldCrawler.Storage
         private byte[] MergeDeletions(int x, int z, byte[] payload)
         {
             var snapshot = Capture.ZoneSnapshot.Decode(payload);
-            if (snapshot.PayloadVersion < 2 || !File.Exists(ZonePath(x, z)))
+            if (snapshot.PayloadVersion != 2 || !File.Exists(ZonePath(x, z)))
             {
                 return payload;
             }

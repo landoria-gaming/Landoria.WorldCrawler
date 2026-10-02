@@ -12,25 +12,27 @@ namespace Landoria.WorldCrawler.Capture
         // Rejects incomplete envelopes, duplicate records, and unsupported interpretation flags.
         internal static void Validate(ZoneSnapshot snapshot)
         {
-            if (snapshot.PayloadVersion != 1 && snapshot.PayloadVersion != 2)
+            if (snapshot.PayloadVersion < 1 || snapshot.PayloadVersion > 3)
             {
                 throw new NotSupportedException("The zone payload version is unsupported.");
             }
-            if (snapshot.AbsenceAuthoritative || snapshot.ObservationQuality != "stable-client-observation")
+            if (snapshot.AbsenceAuthoritative || snapshot.ObservationQuality !=
+                (snapshot.PayloadVersion == 3 ? "received-object-cache" : "stable-client-observation"))
             {
                 throw new InvalidDataException("Unsupported zone payload version or observation quality.");
             }
             if (snapshot.Objects == null || snapshot.SceneNodes == null || snapshot.PrefabCounts == null
                 || snapshot.CategoryCounts == null || snapshot.ExclusionCounts == null || snapshot.Limitations == null
                 || snapshot.ExcludedCategories == null || snapshot.StartedUtcTicks <= 0
-                || snapshot.FinishedUtcTicks < snapshot.StartedUtcTicks || snapshot.ObservationPasses < 2
-                || !snapshot.TerrainReady || !Finite(snapshot.DwellSeconds) || !Finite(snapshot.StableSeconds)
+                || snapshot.FinishedUtcTicks < snapshot.StartedUtcTicks || (snapshot.PayloadVersion < 3 &&
+                (snapshot.ObservationPasses < 2 || !snapshot.TerrainReady)) || !Finite(snapshot.DwellSeconds) || !Finite(snapshot.StableSeconds)
                 || snapshot.DwellSeconds < 0 || snapshot.StableSeconds < 0 || snapshot.InteriorObjectCount < 0
                 || snapshot.DungeonExpected && !snapshot.DungeonEvidenceComplete)
             {
                 throw new InvalidDataException("Zone observation metadata is missing or invalid.");
             }
             ValidateCoverage(snapshot);
+            ValidateRemovals(snapshot);
             ValidateObjects(snapshot);
             ValidateNodes(snapshot.SceneNodes);
             ValidateCounts(snapshot.PrefabCounts);
@@ -46,12 +48,32 @@ namespace Landoria.WorldCrawler.Capture
         // Keeps old quality flags distinct from the new explicit near/scene/deletion evidence.
         private static void ValidateCoverage(ZoneSnapshot snapshot)
         {
+            if (snapshot.PayloadVersion == 3 && (snapshot.NearCoverageValidated || snapshot.InstancesValidated ||
+                snapshot.SceneValidated || snapshot.NaturalAbsenceComplete || snapshot.Deletions == null || snapshot.Departures == null))
+            {
+                throw new InvalidDataException("Passive received data cannot claim full-zone coverage.");
+            }
             if (snapshot.PayloadVersion == 2 && (!snapshot.NearCoverageValidated || !snapshot.InstancesValidated ||
                 !snapshot.SceneValidated || snapshot.StableSeconds < 2f || snapshot.Deletions == null || snapshot.Departures == null ||
                 snapshot.Departures.Any(item => item == null || !Identifier(item.SourceUser) || item.ObservedUtcTicks <= 0) ||
                 snapshot.Deletions.Any(item => item == null || !Identifier(item.SourceUser) || item.ObservedUtcTicks <= 0)))
             {
                 throw new InvalidDataException("The recording lacks full local coverage or valid deletion evidence.");
+            }
+        }
+
+        // Requires explicit valid source identities for every deletion or sector crossing.
+        private static void ValidateRemovals(ZoneSnapshot snapshot)
+        {
+            if (snapshot.PayloadVersion < 2)
+            {
+                return;
+            }
+            if (snapshot.Deletions == null || snapshot.Departures == null ||
+                snapshot.Deletions.Any(v => v == null || !Identifier(v.SourceUser) || v.ObservedUtcTicks <= 0) ||
+                snapshot.Departures.Any(v => v == null || !Identifier(v.SourceUser) || v.ObservedUtcTicks <= 0))
+            {
+                throw new InvalidDataException("Invalid explicit recording deletion or departure.");
             }
         }
 

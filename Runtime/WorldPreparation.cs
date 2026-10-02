@@ -79,7 +79,13 @@ namespace Landoria.WorldCrawler.Runtime
             NativeConfirmation.Show("World Crawler", $"Prepare or reuse local world '{world.Name}'?\n" +
                 $"Seed: {world.SeedText}\nUID: {world.Uid}\nSaved zones: {_archive.Manifest.Zones.Count}\n\n" +
                 "Existing unrelated worlds will not be overwritten. Back up your character: the same UID shares its map and saved positions.",
-                accepted => { if (ReferenceEquals(selected, _archive)) { Answer(accepted); } });
+                accepted =>
+                {
+                    if (ReferenceEquals(selected, _archive))
+                    {
+                        Answer(accepted);
+                    }
+                });
             _confirming = true;
         }
 

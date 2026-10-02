@@ -1,6 +1,6 @@
 namespace Landoria.WorldCrawler.Restoration
 {
-    // Releases manual flight only after the final native save and journal checkpoint succeed.
+    // Ends restoration only after the final native save and journal checkpoint succeed.
     internal sealed partial class RestorationController
     {
         // Leaves the player at the current position; no landing, return flight, or teleport occurs.

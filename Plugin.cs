@@ -19,8 +19,9 @@ namespace Landoria.WorldCrawler
         private WorldPreparation _preparation;
         private RestorationController _restoration;
         private ExportMapOverlay _mapOverlay;
+        private readonly LocalDaylight _daylight = new LocalDaylight();
 
-        // Validates the runtime version before installing movement hooks.
+        // Validates the runtime version before installing passive recording and protection hooks.
         private void Awake()
         {
             GameContext.ValidateVersion();
@@ -29,6 +30,7 @@ namespace Landoria.WorldCrawler
             var selection = new RestoreSelection();
             _harmony = new Harmony(PluginGuid);
             _harmony.PatchAll(typeof(Plugin).Assembly);
+            Flight.PlayerProtection.Enabled = true;
             _controller = new CrawlController(Logger);
             _preparation = new WorldPreparation(selection, Logger);
             _restoration = new RestorationController(selection, Logger);
@@ -44,7 +46,7 @@ namespace Landoria.WorldCrawler
                 return;
             }
             Flight.CharacterMarkerPolicy.Enforce(Game.instance == null ? null : Game.instance.GetPlayerProfile());
-            Flight.FlightController.ReleaseStaleControl();
+            _daylight.Update();
             _preparation.Update();
             HandleShortcut();
             _controller.Update();
@@ -83,9 +85,11 @@ namespace Landoria.WorldCrawler
             _mapOverlay?.Update();
         }
 
-        // Restores controlled physics and removes only this plugin's Harmony patches.
+        // Flushes received data, restores local lighting and removes only this plugin's hooks.
         private void OnDestroy()
         {
+            Flight.PlayerProtection.Enabled = false;
+            _daylight.Reset();
             try
             {
                 _controller?.Dispose();

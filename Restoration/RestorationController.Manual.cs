@@ -39,14 +39,13 @@ namespace Landoria.WorldCrawler.Restoration
             _read = Task.Run(() => new ZoneImportData { Snapshot = archive.ReadZone(zoneToRead),
                 Records = archive.ZoneObjects(zoneToRead.X, zoneToRead.Z) });
             _waitingSince = Time.unscaledTime;
-            _session.Flight.LockMovement();
             _phase = RestorePhase.Reading;
         }
 
-        // Suspends unfinished mutations across external teleports; mod map clicks are blocked during work.
+        // Suspends unfinished mutations when free movement or a teleport leaves the loaded sector.
         private bool ManualTransit()
         {
-            var transit = _session.Flight?.WaitForManualTeleport() == true || Player.m_localPlayer.IsTeleporting();
+            var transit = Player.m_localPlayer.IsTeleporting();
             _scope.Refresh(Player.m_localPlayer.transform.position);
             if (_zone != null && (transit || !_scope.Contains(_zone.X, _zone.Z)) &&
                 (_phase == RestorePhase.Reading || _phase == RestorePhase.Restoring || _phase == RestorePhase.Connecting))
@@ -73,7 +72,7 @@ namespace Landoria.WorldCrawler.Restoration
             if (Time.unscaledTime - _waitingSince >= 120f)
             {
                 AddWarning("Zone " + ZoneKey(_zone.X, _zone.Z) +
-                    " is still loading. Movement remains protected; F10 stops safely.");
+                    " is still loading. Move freely or press F10 to stop safely.");
                 _waitingSince = Time.unscaledTime;
             }
             return false;

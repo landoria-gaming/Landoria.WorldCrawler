@@ -237,7 +237,6 @@ namespace Landoria.WorldCrawler.Restoration
             if (connection == null || connection.m_target != endpoint.m_uid || (int)connection.m_type != source.ConnectionType)
             {
                 target.SetConnection((ZDOExtraData.ConnectionType)source.ConnectionType, endpoint.m_uid);
-                Landoria.WorldCrawler.Flight.ReceiveMotionGate.Worked();
             }
             return true;
         }

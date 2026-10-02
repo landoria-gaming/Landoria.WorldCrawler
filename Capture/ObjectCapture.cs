@@ -21,10 +21,6 @@ namespace Landoria.WorldCrawler.Capture
         internal CapturedObject Read(ZDO source, int x, int z)
         {
             var prefab = ZNetScene.instance.GetPrefab(source.GetPrefab());
-            if (prefab == null)
-            {
-                throw new InvalidOperationException("Unknown prefab " + source.GetPrefab() + " for ZDO " + source.m_uid);
-            }
             var data = new ZPackage();
             source.Serialize(data);
             var instance = ZNetScene.instance.FindInstance(source);
@@ -32,7 +28,7 @@ namespace Landoria.WorldCrawler.Capture
             {
                 SourceUser = source.m_uid.UserID.ToString(CultureInfo.InvariantCulture),
                 SourceId = source.m_uid.ID,
-                PrefabName = prefab.name,
+                PrefabName = prefab == null ? "unknown_" + source.GetPrefab() : prefab.name,
                 PrefabHash = source.GetPrefab(),
                 ZoneX = x,
                 ZoneZ = z,
@@ -46,7 +42,7 @@ namespace Landoria.WorldCrawler.Capture
                 Creator = source.GetLong("creator", 0L).ToString(CultureInfo.InvariantCulture),
                 RawDataBase64 = data.GetBase64(),
                 ObservedUtcTicks = DateTime.UtcNow.Ticks,
-                Categories = Categories(prefab, source.GetPrefab())
+                Categories = prefab == null ? new string[0] : Categories(prefab, source.GetPrefab())
             };
             ReadConnection(source, result);
             ReadLocation(source, prefab, result);
@@ -69,7 +65,7 @@ namespace Landoria.WorldCrawler.Capture
         // Captures the identity and generation seed of source location proxies.
         private void ReadLocation(ZDO source, GameObject prefab, CapturedObject result)
         {
-            if (prefab.GetComponent<LocationProxy>() == null)
+            if (prefab == null || prefab.GetComponent<LocationProxy>() == null)
             {
                 return;
             }

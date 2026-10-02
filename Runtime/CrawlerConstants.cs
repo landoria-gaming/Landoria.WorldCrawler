@@ -10,10 +10,8 @@ namespace Landoria.WorldCrawler.Runtime
         public const KeyCode ExportKey = KeyCode.F8;
         public const KeyCode PrepareKey = KeyCode.F9;
         public const KeyCode RestoreKey = KeyCode.F10;
-        public const float Speed = 40f;
-        public const float SprintMultiplier = 4f;
+        public const float RecordingFlushInterval = 10f;
         public const float RestoreSaveInterval = 120f;
-        public const float ZoneTimeout = 120f;
         public const int ObjectsPerFrame = 40;
         public const float ExportedZoneOpacity = 0.2f;
         public const float RemainingZoneOpacity = 0.3f;

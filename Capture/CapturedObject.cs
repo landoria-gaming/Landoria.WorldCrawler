@@ -29,5 +29,11 @@ namespace Landoria.WorldCrawler.Capture
         [DataMember(Order = 20)] public int LocationHash;
         [DataMember(Order = 21)] public int LocationSeed;
         [DataMember(Order = 22)] public string LocationName;
+
+        // Copies metadata without modifying immutable payload arrays shared with a flush batch.
+        internal CapturedObject Copy()
+        {
+            return (CapturedObject)MemberwiseClone();
+        }
     }
 }

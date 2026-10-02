@@ -1,146 +1,111 @@
-using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Landoria.WorldCrawler.Capture;
-using Landoria.WorldCrawler.Flight;
+using Landoria.WorldCrawler.Storage;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Validates and commits one received sector at a time, without directing player movement.
+    // Flushes detached batches without waiting for server silence or freezing the player.
     internal sealed partial class CrawlController
     {
-        // Handles explicit teleports and invalidates observations if an external move leaves near coverage.
-        private bool Transit()
-        {
-            var transit = _flight?.WaitForManualTeleport() == true || _player.IsTeleporting();
-            _observer.Scope.Refresh(_player.transform.position);
-            if (_capture != null && (transit || !_observer.Scope.Contains(_zone.X, _zone.Z)))
-            {
-                _capture.Dispose();
-                _capture = null;
-                _zone = null;
-                _stall = null;
-                _phase = CrawlPhase.Waiting;
-                Say("External travel interrupted validation; the previous saved file is unchanged.");
-            }
-            return transit && _phase != CrawlPhase.Writing;
-        }
-
-        // Dispatches only preparation, passive observation, validation and disk commits.
+        // Serializes disk batches while reception continues in a separate cache.
         private void Advance()
         {
-            switch (_phase)
+            if (_store == null)
             {
-                case CrawlPhase.Preparing:
-                    Prepare();
-                    break;
-                case CrawlPhase.Waiting:
-                    BeginCapture();
-                    break;
-                case CrawlPhase.Capturing:
-                    Capture();
-                    break;
-                case CrawlPhase.Writing:
-                    FinishWrite();
-                    break;
-            }
-        }
-
-        // Takes exclusive store ownership after validation, leaving old export folders untouched.
-        private void Prepare()
-        {
-            if (!_preparation.TryTake(out var store))
-            {
-                return;
-            }
-            _store = store;
-            _preparation.Dispose();
-            _preparation = null;
-            _map = ProgressMapSnapshot.Export(store.Manifest, null);
-            _phase = CrawlPhase.Waiting;
-            if (!string.IsNullOrEmpty(store.RecoveryNotice))
-            {
-                _log.LogWarning(store.RecoveryNotice);
-            }
-            Say("Recording active. Movement is held only while useful data is being captured.");
-        }
-
-        // Begins dirty near-zone work, including terrain still loading on arrival.
-        private void BeginCapture()
-        {
-            if (Time.unscaledTime < _retryAt)
-            {
-                return;
-            }
-            _zone = _observer.Next(_player.transform.position);
-            if (_zone == null)
-            {
-                return;
-            }
-            _flight.LockMovement();
-            _capture = new ZoneCaptureSession(_zone.X, _zone.Z);
-            _phase = CrawlPhase.Capturing;
-        }
-
-        // Never converts a timeout or incomplete observation into a saved sector.
-        private void Capture()
-        {
-            try
-            {
-                if (_observer.HasQueuedObjects || !_capture.Step())
+                if (!_preparation.TryTake(out _store))
                 {
                     return;
                 }
-                var result = _capture.Result;
-                result.Deletions = _observer.Deletions(_zone);
-                result.Departures = _observer.Departures(_zone);
-                _writeRevision = _observer.Revision(_zone);
-                _capture.Dispose();
-                _capture = null;
-                var x = _zone.X;
-                var z = _zone.Z;
-                var version = GameContext.GameVersion;
-                var store = _store;
-                _write = Task.Run(() => store.WriteZone(x, z, result.Encode(), version, result.Objects.Count));
-                _phase = CrawlPhase.Writing;
+                _preparation.Dispose();
+                _preparation = null;
+                _phase = CrawlPhase.Waiting;
+                PublishCommitted();
             }
-            catch (TimeoutException error)
+            if (_write != null)
             {
-                Stall(error.Message);
+                FinishWrite();
+                return;
             }
+            if (Time.realtimeSinceStartup < _nextFlush)
+            {
+                return;
+            }
+            _batch = _batch ?? _observer.TakeBatch();
+            if (_batch.Count == 0)
+            {
+                _batch = null;
+                _nextFlush = Time.realtimeSinceStartup + CrawlerConstants.RecordingFlushInterval;
+                if (_stop)
+                {
+                    Finish();
+                }
+                return;
+            }
+            BeginWrite();
         }
 
-        // Keeps protection and the movement lock while offering F8 cancellation of stalled work.
-        private void Stall(string reason)
+        // Owns the current detached batch until every sector has been durably committed.
+        private void BeginWrite()
         {
-            _stall = reason + " F8 stops without exporting this zone.";
-            _log.LogWarning(_stall);
-            _capture.Dispose();
-            _capture = null;
-            _retryAt = Time.unscaledTime + 2f;
-            _phase = CrawlPhase.Waiting;
+            var batch = _batch;
+            var store = _store;
+            var version = _version;
+            _log.LogInfo("Recording flush started: zones=" + batch.Count +
+                "; objects=" + batch.Sum(zone => zone.Objects.Count) + "; final=" + _stop + ".");
+            _write = Task.Run(() => RecordingFlush.Write(store, batch, version));
+            _nextFlush = Time.realtimeSinceStartup + CrawlerConstants.RecordingFlushInterval;
+            _phase = CrawlPhase.Writing;
         }
 
-        // Accepts exactly the written revision; changes received during the write stay pending.
+        // Preserves the same batch on failure and only publishes progress after successful disk writes.
         private void FinishWrite()
         {
             if (!_write.IsCompleted)
             {
                 return;
             }
-            var write = _write;
+            var task = _write;
             _write = null;
-            write.GetAwaiter().GetResult();
-            _observer.Committed(_zone, _writeRevision);
-            _map = ProgressMapSnapshot.Export(_store.Manifest, null);
-            _log.LogInfo("Recorded zone " + _zone.X + ":" + _zone.Z + ".");
-            _zone = null;
-            _stall = null;
             _phase = CrawlPhase.Waiting;
+            task.GetAwaiter().GetResult();
+            foreach (var item in _batch.SelectMany(zone => zone.Objects))
+            {
+                _savedObjectIds.Add(item.SourceUser + ":" + item.SourceId);
+            }
+            foreach (var zone in _batch)
+            {
+                _savedZones.Add(zone.ZoneX + ":" + zone.ZoneZ);
+            }
+            _log.LogInfo("Recording flush saved: zones=" + _batch.Count +
+                "; newlyCachedZones=" + _observer.Pending + ".");
+            _batch = null;
+            PublishCommitted();
             if (_stop)
             {
-                Stop();
+                _nextFlush = 0f;
             }
+        }
+
+        // Copies manifest geometry only when no background write can modify it.
+        private void PublishCommitted()
+        {
+            _committed = _store.Manifest.Zones.Where(zone => zone.Status == "captured")
+                .Select(zone => new ZoneEntry { X = zone.X, Z = zone.Z, Status = "captured" }).ToList();
+            RefreshMap();
+        }
+
+        // Marks buffered replacements amber without erasing their older durable files.
+        private void RefreshMap()
+        {
+            var dirty = _observer.PendingZones().ToList();
+            if (_batch != null)
+            {
+                dirty.AddRange(_batch.Select(zone => new ZoneEntry { X = zone.ZoneX, Z = zone.ZoneZ, Status = "pending" }));
+            }
+            _map = ProgressMapSnapshot.Recording(_committed, dirty);
         }
     }
 }

@@ -2,261 +2,252 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using Landoria.WorldCrawler.Flight;
+using System.Reflection;
 using Landoria.WorldCrawler.Storage;
 using UnityEngine;
 
 namespace Landoria.WorldCrawler.Capture
 {
-    // Coalesces received changes and already-loaded state within the native near-zone scope.
-    internal sealed class RecordingObserver : IDisposable
+    // Copies received state immediately so native unloads cannot discard pending disk data.
+    internal sealed partial class RecordingObserver : IDisposable
     {
         private static RecordingObserver _current;
         private readonly CaptureApi _api = new CaptureApi();
+        private readonly ObjectCapture _reader;
         private readonly CaptureReceivePolicy _policy = new CaptureReceivePolicy();
-        private readonly Dictionary<ZDOID, uint> _sampledRevision = new Dictionary<ZDOID, uint>();
-        private readonly Queue<ZDOID> _received = new Queue<ZDOID>();
-        private readonly HashSet<ZDOID> _queued = new HashSet<ZDOID>();
-        private readonly Dictionary<ZDOID, string> _fingerprints = new Dictionary<ZDOID, string>();
-        private readonly Dictionary<ZDOID, string> _objectZones = new Dictionary<ZDOID, string>();
-        private readonly Dictionary<string, long> _revisions = new Dictionary<string, long>();
-        private readonly Dictionary<string, long> _saved = new Dictionary<string, long>();
-        private readonly List<ZDO> _sample = new List<ZDO>();
-        private readonly Queue<ZoneEntry> _scan = new Queue<ZoneEntry>();
-        private float _nextScan;
-        private int _scopeRevision = -1;
-        private long _revision;
-        private readonly Dictionary<string, List<CapturedDeletion>> _deletions = new Dictionary<string, List<CapturedDeletion>>();
-        private readonly Dictionary<ZDOID, int> _prefabs = new Dictionary<ZDOID, int>();
-        private readonly Dictionary<string, List<CapturedDeparture>> _departures = new Dictionary<string, List<CapturedDeparture>>();
-        public NearZoneScope Scope { get; } = new NearZoneScope();
-        public int Pending => _revisions.Count(pair => !_saved.TryGetValue(pair.Key, out var saved) || saved != pair.Value);
-        public bool HasQueuedObjects => _received.Count != 0;
-        public string Error { get; private set; }
+        private readonly Dictionary<ZDOID, RecordingStamp> _known = new Dictionary<ZDOID, RecordingStamp>();
+        private readonly HashSet<ZDOID> _destroyed = new HashSet<ZDOID>();
+        private Dictionary<string, RecordingZone> _pending = new Dictionary<string, RecordingZone>();
+        private readonly Queue<ZDOID> _sweep = new Queue<ZDOID>();
+        private readonly FieldInfo _objects = typeof(ZDOMan).GetField("m_objectsByID", BindingFlags.Instance | BindingFlags.NonPublic);
+        private readonly long _worldUid;
+        private float _nextSweep;
+        private long _ticks;
+        private bool _frozen;
+        public int Pending => _pending.Count;
+        public int PendingObjects => _pending.Values.Sum(zone => zone.Objects.Count);
+        public long Errors { get; private set; }
+        public string LastError { get; private set; }
 
-        // Installs a passive receiver; startup sweeps also include unchanged objects already in memory.
-        public RecordingObserver()
+        // Activates capture before the disk store is opened, retaining arrivals during preparation.
+        public RecordingObserver(long worldUid)
         {
-            if (_current != null)
+            if (_current != null || _objects == null ||
+                _objects.FieldType != typeof(Dictionary<ZDOID, ZDO>))
             {
-                throw new InvalidOperationException("A recording observer is already active.");
+                throw new InvalidOperationException("Recording is already active or the native object catalogue is unavailable.");
             }
+            _reader = new ObjectCapture(_api);
+            _worldUid = worldUid;
             _current = this;
         }
 
-        // Queues IDs after deserialization; expensive serialization runs under the frame budget.
-        public static void Received(ZDO source)
+        // Copies the complete deserialized object, never merely queuing a mutable ZDO reference.
+        public static void Received(ZDO source, bool fromNetwork = true, bool force = false)
         {
             var observer = _current;
-            if (observer == null || source == null || !source.IsValid() || !source.Persistent)
+            if (observer == null || ZNet.World == null || ZNet.World.m_uid != observer._worldUid)
+            {
+                return;
+            }
+            observer._diagnostics.Received(fromNetwork);
+            try
+            {
+                observer.Record(source, fromNetwork || force);
+            }
+            catch (Exception error)
+            {
+                observer.Errors++;
+                observer.LastError = "Object " + source?.m_uid + ": " + error.Message;
+            }
+        }
+
+        // Includes local-owner edits and objects present before F8 without controlling movement.
+        public void Step(Vector3 position)
+        {
+            if (_frozen || ZDOMan.instance == null)
+            {
+                return;
+            }
+            if (_sweep.Count == 0 && Time.realtimeSinceStartup >= _nextSweep)
+            {
+                foreach (var id in AllObjects().Keys.ToArray())
+                {
+                    _sweep.Enqueue(id);
+                }
+                _nextSweep = Time.realtimeSinceStartup + 1f;
+            }
+            var clock = Stopwatch.StartNew();
+            for (var count = 0; _sweep.Count > 0 && count < 40 && clock.ElapsedMilliseconds < 4; count++)
+            {
+                Received(ZDOMan.instance.GetZDO(_sweep.Dequeue()), false);
+            }
+            ObserveScene(position);
+        }
+
+        // Serializes included records before comparing content, retaining exact data rather than fire-clock approximations.
+        private void Record(ZDO source, bool force)
+        {
+            if (source == null || !source.IsValid() || !source.Persistent || _destroyed.Contains(source.m_uid) ||
+                _policy.For(source.GetPrefab()) == 0)
+            {
+                return;
+            }
+            _diagnostics.Processed++;
+            var view = ZNetScene.instance.FindInstance(source);
+            _known.TryGetValue(source.m_uid, out var prior);
+            if (!force && prior != null && prior.Revision == source.DataRevision &&
+                prior.HadInstance == (view != null) && prior.Position == source.GetPosition())
+            {
+                return;
+            }
+            _api.GetZone(source.GetPosition(), out var x, out var z);
+            var item = _reader.Read(source, x, z);
+            item.LocalScale = item.LocalScale ?? prior?.LocalScale;
+            var fingerprint = ContentFingerprint(item);
+            if (prior != null && prior.Fingerprint == fingerprint)
+            {
+                prior.Revision = source.DataRevision;
+                prior.HadInstance = view != null;
+                _diagnostics.Unchanged++;
+                return;
+            }
+            Cache(source, item, prior, view != null, fingerprint);
+        }
+
+        // Tracks sector moves separately from deletion and retains known instantiated scale.
+        private void Cache(ZDO source, CapturedObject item, RecordingStamp prior, bool hasInstance, string fingerprint)
+        {
+            var x = item.ZoneX;
+            var z = item.ZoneZ;
+            item.ObservedUtcTicks = NextTicks();
+            if (prior != null && (prior.X != x || prior.Z != z))
+            {
+                Zone(prior.X, prior.Z).Departures[Key(item)] = new CapturedDeparture {
+                    SourceUser = item.SourceUser, SourceId = item.SourceId, PrefabHash = prior.Prefab,
+                    DestinationX = x, DestinationZ = z, ObservedUtcTicks = item.ObservedUtcTicks - 1 };
+            }
+            Zone(x, z).Objects[Key(item)] = item;
+            _known[source.m_uid] = new RecordingStamp { X = x, Z = z, Prefab = item.PrefabHash,
+                Revision = source.DataRevision, HadInstance = hasInstance, Position = source.GetPosition(),
+                Fingerprint = fingerprint, LocalScale = item.LocalScale };
+            _diagnostics.Changed(source, x, z);
+        }
+
+        // Records actual deletion messages; ordinary unloads only copy their last known state.
+        public static void Destroyed(ZDOID id)
+        {
+            var observer = _current;
+            if (observer == null || ZNet.World == null || ZNet.World.m_uid != observer._worldUid)
             {
                 return;
             }
             try
             {
-                var point = source.GetPosition();
-                var x = Mathf.FloorToInt((point.x + 32f) / 64f);
-                var z = Mathf.FloorToInt((point.z + 32f) / 64f);
-                if ((observer.Scope.Contains(x, z) || observer._objectZones.ContainsKey(source.m_uid)) && observer._policy.For(source.GetPrefab()) != 0 &&
-                    observer._queued.Add(source.m_uid))
+                Received(ZDOMan.instance.GetZDO(id), false);
+                if (observer._known.TryGetValue(id, out var prior))
                 {
-                    observer._received.Enqueue(source.m_uid);
+                    var item = new CapturedDeletion { SourceUser = id.UserID.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        SourceId = id.ID, PrefabHash = prior.Prefab, ObservedUtcTicks = observer.NextTicks() };
+                    observer.Zone(prior.X, prior.Z).Deletions[item.SourceUser + ":" + item.SourceId] = item;
+                    observer.Zone(prior.X, prior.Z).Objects.Remove(item.SourceUser + ":" + item.SourceId);
+                    observer._destroyed.Add(id);
+                    observer._known.Remove(id);
                 }
             }
             catch (Exception error)
             {
-                observer.Error = error.Message;
+                observer.Errors++;
+                observer.LastError = "Deletion " + id + ": " + error.Message;
             }
         }
 
-        // Refreshes the real near scope and processes bounded local observations.
-        public void Step(Vector3 position)
+        // Hands immutable owned records to one worker while newer arrivals use a fresh cache.
+        internal List<ZoneSnapshot> TakeBatch()
         {
-            if (Error != null)
-            {
-                throw new InvalidOperationException("Recording observer: " + Error);
-            }
-            Scope.Refresh(position);
-            if (_scopeRevision != Scope.Revision)
-            {
-                UpdateScope();
-                _scopeRevision = Scope.Revision;
-                _scan.Clear();
-                _nextScan = 0f;
-            }
-            Sweep();
-            var clock = Stopwatch.StartNew();
-            for (var count = 0; _received.Count > 0 && count < 40 && clock.ElapsedMilliseconds < 4; count++)
-            {
-                var id = _received.Dequeue();
-                _queued.Remove(id);
-                var source = ZDOMan.instance.GetZDO(id);
-                if (source != null && source.IsValid() && source.Persistent)
-                {
-                    Observe(source);
-                }
-            }
+            var batch = _pending.Values.Select(zone => zone.Snapshot(NextTicks())).ToList();
+            _pending = new Dictionary<string, RecordingZone>();
+            return batch;
         }
 
-        // Forgets visit bookkeeping outside coverage, but never treats departure as a deletion.
-        private void UpdateScope()
+        // Captures loaded local-owner changes once more, then stops accepting new callbacks.
+        internal void Freeze()
         {
-            var keys = new HashSet<string>(Scope.Zones.Select(zone => NearZoneScope.Key(zone.X, zone.Z)));
-            foreach (var key in _revisions.Keys.Where(key => !keys.Contains(key)).ToArray())
-            {
-                _revisions.Remove(key);
-                _saved.Remove(key);
-            }
-            foreach (var id in _objectZones.Where(pair => !keys.Contains(pair.Value)).Select(pair => pair.Key).ToArray())
-            {
-                _objectZones.Remove(id);
-                _fingerprints.Remove(id);
-                _prefabs.Remove(id);
-                _sampledRevision.Remove(id);
-            }
-            foreach (var zone in Scope.Zones)
-            {
-                var key = NearZoneScope.Key(zone.X, zone.Z);
-                if (!_revisions.ContainsKey(key))
-                {
-                    _revisions.Add(key, ++_revision);
-                }
-            }
-        }
-
-        // Reads one sector per frame and periodically catches local-owner changes missed by network hooks.
-        private void Sweep()
-        {
-            if (_scan.Count == 0 && Time.realtimeSinceStartup >= _nextScan)
-            {
-                foreach (var zone in Scope.Zones)
-                {
-                    _scan.Enqueue(zone);
-                }
-                _nextScan = Time.realtimeSinceStartup + 1f;
-            }
-            if (_scan.Count == 0)
+            if (_frozen)
             {
                 return;
             }
-            var next = _scan.Dequeue();
-            _api.FindObjects(new Vector3(next.X * 64f, 0f, next.Z * 64f), _sample);
-            foreach (var source in _sample)
+            if (ZDOMan.instance != null && ZNet.World != null && ZNet.World.m_uid == _worldUid)
             {
-                if (source != null && (!_sampledRevision.TryGetValue(source.m_uid, out var revision) || revision != source.DataRevision))
+                foreach (var source in AllObjects().Values.ToArray())
                 {
-                    Received(source);
+                    Received(source, false, true);
                 }
             }
+            _frozen = true;
+            RetainScene();
+            Dispose();
         }
 
-        // Accepts only included, changed serialized state before holding movement or dirtying a sector.
-        private void Observe(ZDO source)
+        // Builds map entries only for data actually cached, not planned neighboring sectors.
+        internal IEnumerable<ZoneEntry> PendingZones()
         {
-            _api.GetZone(source.GetPosition(), out var x, out var z);
-            RecordDeparture(source, x, z);
-            if (!Scope.Contains(x, z) || _policy.For(source.GetPrefab()) == 0)
-            {
-                return;
-            }
-            _sampledRevision[source.m_uid] = source.DataRevision;
-            var fingerprint = ObservationFingerprint.Read(source);
-            if (_fingerprints.TryGetValue(source.m_uid, out var old) && old == fingerprint)
-            {
-                return;
-            }
-            var key = NearZoneScope.Key(x, z);
-            _prefabs[source.m_uid] = source.GetPrefab();
-            _fingerprints[source.m_uid] = fingerprint;
-            _objectZones[source.m_uid] = key;
-            _revisions[key] = ++_revision;
-            CaptureReceiveWatch.Changed(x, z);
-            ReceiveMotionGate.Worked();
+            return _pending.Values.Select(zone => new ZoneEntry { X = zone.X, Z = zone.Z, Status = "pending" });
         }
 
-        // Dirties the origin even when an object moves beyond near coverage; departure is not destruction.
-        private void RecordDeparture(ZDO source, int x, int z)
+        // Exposes only detached source IDs for the HUD, never native object references.
+        internal IEnumerable<string> PendingObjectKeys()
+        {
+            return _pending.Values.SelectMany(zone => zone.Objects.Keys);
+        }
+
+        // Resolves a cache tile without making any completeness assertion.
+        private RecordingZone Zone(int x, int z)
         {
             var key = NearZoneScope.Key(x, z);
-            if (!_objectZones.TryGetValue(source.m_uid, out var previous) || previous == key || !_revisions.ContainsKey(previous))
+            if (!_pending.TryGetValue(key, out var zone))
             {
-                return;
+                zone = new RecordingZone(x, z);
+                _pending.Add(key, zone);
             }
-            if (!_departures.TryGetValue(previous, out var records))
+            return zone;
+        }
+
+        // Reads the already-existing catalogue; it never requests new server objects.
+        private Dictionary<ZDOID, ZDO> AllObjects()
+        {
+            return (Dictionary<ZDOID, ZDO>)_objects.GetValue(ZDOMan.instance);
+        }
+
+        // Orders same-frame moves and deletions deterministically even on a coarse system clock.
+        private long NextTicks()
+        {
+            _ticks = Math.Max(_ticks + 1, DateTime.UtcNow.Ticks);
+            return _ticks;
+        }
+
+        // Uses native identities rather than object names or approximate positions.
+        private static string Key(CapturedObject item)
+        {
+            return item.SourceUser + ":" + item.SourceId;
+        }
+
+        // Hashes complete serialized content and explicit transforms without volatile capture timestamps.
+        private static string ContentFingerprint(CapturedObject item)
+        {
+            var data = new ZPackage();
+            data.Write(item.RawDataBase64);
+            foreach (var value in item.Position.Concat(item.Rotation).Concat(item.LocalScale ?? new float[0]))
             {
-                records = new List<CapturedDeparture>();
-                _departures.Add(previous, records);
+                data.Write(value);
             }
-            records.Add(new CapturedDeparture { SourceUser = source.m_uid.UserID.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                SourceId = source.m_uid.ID, PrefabHash = _prefabs[source.m_uid], DestinationX = x, DestinationZ = z,
-                ObservedUtcTicks = DateTime.UtcNow.Ticks });
-            _revisions[previous] = ++_revision;
-            _objectZones[source.m_uid] = key;
-            var parts = previous.Split(':');
-            CaptureReceiveWatch.Changed(int.Parse(parts[0]), int.Parse(parts[1]));
-            ReceiveMotionGate.Worked();
+            data.Write(item.ConnectionType);
+            data.Write(item.ConnectionTargetUser ?? "");
+            data.Write(item.ConnectionTargetId);
+            return StoreValidation.Hash(data.GetArray());
         }
 
-        // Copies departure evidence; it never authorizes exporting an incomplete destination sector.
-        public List<CapturedDeparture> Departures(ZoneEntry zone)
-        {
-            return _departures.TryGetValue(NearZoneScope.Key(zone.X, zone.Z), out var records) ?
-                records.ToList() : new List<CapturedDeparture>();
-        }
-
-        // Picks nearby work only; this never selects a destination for the character.
-        public ZoneEntry Next(Vector3 position)
-        {
-            return Scope.Zones.Where(zone =>
-                !_saved.TryGetValue(NearZoneScope.Key(zone.X, zone.Z), out var saved) ||
-                saved != Revision(zone)).OrderBy(zone =>
-                    (new Vector2(zone.X * 64f, zone.Z * 64f) - new Vector2(position.x, position.z)).sqrMagnitude).FirstOrDefault();
-        }
-
-        // Captures the accepted revision at a validation boundary.
-        public long Revision(ZoneEntry zone)
-        {
-            return _revisions.TryGetValue(NearZoneScope.Key(zone.X, zone.Z), out var value) ? value : -1;
-        }
-
-        // Acknowledges exactly the revision written, keeping later arrivals pending.
-        public void Committed(ZoneEntry zone, long revision)
-        {
-            _saved[NearZoneScope.Key(zone.X, zone.Z)] = revision;
-        }
-
-        // Dirties a known sector on an explicit native destruction, never on scene unload.
-        public static void Destroyed(ZDOID id)
-        {
-            var observer = _current;
-            if (observer != null && observer._objectZones.TryGetValue(id, out var key))
-            {
-                if (!observer._deletions.TryGetValue(key, out var list))
-                {
-                    list = new List<CapturedDeletion>();
-                    observer._deletions.Add(key, list);
-                }
-                list.Add(new CapturedDeletion { SourceUser = id.UserID.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    SourceId = id.ID, PrefabHash = observer._prefabs[id], ObservedUtcTicks = DateTime.UtcNow.Ticks });
-                observer._revisions[key] = ++observer._revision;
-                observer._fingerprints.Remove(id);
-                observer._objectZones.Remove(id);
-                observer._prefabs.Remove(id);
-                observer._sampledRevision.Remove(id);
-                var coordinates = key.Split(':');
-                CaptureReceiveWatch.Changed(int.Parse(coordinates[0]), int.Parse(coordinates[1]));
-                ReceiveMotionGate.Worked();
-            }
-        }
-
-        // Copies confirmed removals into a fully validated sector commit.
-        public List<CapturedDeletion> Deletions(ZoneEntry zone)
-        {
-            return _deletions.TryGetValue(NearZoneScope.Key(zone.X, zone.Z), out var records) ?
-                records.ToList() : new List<CapturedDeletion>();
-        }
-
-        // Detaches callbacks before releasing the recording folder.
+        // Detaches callbacks without discarding the owned data waiting to be flushed.
         public void Dispose()
         {
             if (ReferenceEquals(_current, this))

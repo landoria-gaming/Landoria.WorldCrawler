@@ -20,6 +20,14 @@ namespace Landoria.WorldCrawler.Runtime
             return Build(zones, completed);
         }
 
+        // Separates unsaved received data from durable snapshots without claiming complete server coverage.
+        internal static ExportMapOverlayData Recording(IEnumerable<ZoneEntry> saved, IEnumerable<ZoneEntry> pending)
+        {
+            var dirty = new HashSet<string>(pending.Select(zone => zone.X + ":" + zone.Z));
+            return Build(saved.Concat(pending), saved.Where(zone => !dirty.Contains(zone.X + ":" + zone.Z))
+                .Select(zone => zone.X + ":" + zone.Z));
+        }
+
         // Splits the same unique sector inventory into saved and remaining rectangles.
         private static ExportMapOverlayData Build(IEnumerable<ZoneEntry> zones, IEnumerable<string> completed)
         {

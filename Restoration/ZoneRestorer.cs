@@ -62,7 +62,6 @@ namespace Landoria.WorldCrawler.Restoration
             while (_index < _records.Count && budget-- > 0 && watch.ElapsedMilliseconds < 4)
             {
                 _objects.Restore(_records[_index], _version);
-                Landoria.WorldCrawler.Flight.ReceiveMotionGate.Worked();
                 _index++;
             }
             if (_index != _records.Count)
@@ -107,7 +106,6 @@ namespace Landoria.WorldCrawler.Restoration
             var removed = _objects.CleanupZone(_snapshot.ZoneX, _snapshot.ZoneZ);
             if (removed > 0)
             {
-                Landoria.WorldCrawler.Flight.ReceiveMotionGate.Worked();
                 _warning("Removed " + removed + " absent known generated objects in " +
                     _snapshot.ZoneX + ":" + _snapshot.ZoneZ + ".");
             }
