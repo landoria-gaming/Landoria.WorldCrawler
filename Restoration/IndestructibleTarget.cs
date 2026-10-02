@@ -127,7 +127,7 @@ namespace Landoria.WorldCrawler.Restoration
         }
 
         // Removes only the previously listed object after rechecking its identity and live hierarchy.
-        internal void Delete(CaptureApi api, CleanupSourceIndex source, Vector3 player, float radius)
+        internal string Delete(CaptureApi api, CleanupSourceIndex source, Vector3 player, float radius)
         {
             if (Removed || _view == null || _root == null || _view.GetZDO() != _data || !Generated(_data) ||
                 Distance(player) > radius || Vector3.Distance(Position, _data.GetPosition()) > 0.1f ||
@@ -145,13 +145,14 @@ namespace Landoria.WorldCrawler.Restoration
                 throw new InvalidOperationException("The live location hash changed from " + _locationHash + " to " + liveHash +
                     ". Nothing was deleted; run indestructible list again.");
             }
-            string rejection;
+            string rejection = null;
             if (_locationHash != 0 && !api.RemoveLocationRegistration(Position, _locationHash, out rejection))
             {
                 throw new InvalidOperationException(rejection + " Nothing was deleted.");
             }
             DeleteHierarchy();
             Removed = true;
+            return rejection;
         }
 
         // Deletes every durable member of a known generated site before removing its proxy.

@@ -117,10 +117,9 @@ namespace Landoria.WorldCrawler.Capture
             var actualHash = definition.m_prefabName.GetStableHashCode();
             if (actualHash != expectedHash)
             {
-                rejection = "Native location mismatch in sector " + ZoneText(zone) + ": expected hash " + expectedHash +
-                    ", registered " + definition.m_prefabName + " (hash " + actualHash + ") at " +
-                    ((Vector3)_locationPosition.GetValue(location)).ToString("F1") + ".";
-                return false;
+                rejection = "The native registry entry for " + definition.m_prefabName + " in sector " + ZoneText(zone) +
+                    " belongs to another location and was left unchanged.";
+                return true;
             }
             locations.Remove(zone);
             foreach (var cacheField in caches)

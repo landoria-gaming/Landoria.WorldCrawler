@@ -180,12 +180,16 @@ namespace Landoria.WorldCrawler.Runtime
             }
             DeletionsPending();
             var id = selected.Id;
-            selected.Delete(new CaptureApi(), source, Player.m_localPlayer.transform.position, _radius);
+            var registryNote = selected.Delete(new CaptureApi(), source, Player.m_localPlayer.transform.position, _radius);
             _pendingWorld = ZNet.World;
             _pending.Add(id);
             _restore.SceneryChanged();
             Reply(args, "Removed " + selected.Name + " at " + selected.Position.ToString("F1") +
                 ". The deletion will persist with the next world save; restore a world backup to undo it.");
+            if (!string.IsNullOrEmpty(registryNote))
+            {
+                Reply(args, registryNote);
+            }
         }
 
         // Lets F10 wait for native destruction before starting a checkpoint, without stopping restoration.
