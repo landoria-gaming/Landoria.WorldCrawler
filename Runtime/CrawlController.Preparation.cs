@@ -23,11 +23,12 @@ namespace Landoria.WorldCrawler.Runtime
                 _log.LogWarning(store.RecoveryNotice);
             }
             _log.LogInfo($"Landmark export: {store.DirectoryPath}; {store.Manifest.Zones.Count} zones; radius={store.Manifest.Selection?.Radius}m.");
-            if ((_pauseRequested || !Pending()) && !store.Manifest.ReturnPending)
+            if (_pauseRequested || !_manual && !Pending())
             {
                 _phase = Pending() ? CrawlPhase.Paused : CrawlPhase.Completed;
                 SessionCheckpoint.SetState(store, _phase == CrawlPhase.Completed ? "completed" : "paused", null);
                 Say($"Inventory saved: {store.Manifest.Zones.Count} zones.");
+                _flight?.Abort();
                 CloseStore();
                 return;
             }
@@ -39,24 +40,27 @@ namespace Landoria.WorldCrawler.Runtime
         {
             if (_flight == null)
             {
-                _flight = new FlightController { Speed = CrawlerConstants.Speed };
-                _flight.Begin(_player);
+                _flight = new FlightController { Speed = CrawlerConstants.Speed, Manual = _manual };
+                _flight.Begin(_player, _player.transform.position, _player.transform.rotation);
             }
             SessionCheckpoint.Begin(store, _player);
-            _navigation = new TravelNavigator(_flight, _player, CrawlerConstants.Clearance,
-                CrawlerConstants.PreferPortals, CrawlerConstants.CruiseSpeed, CrawlerConstants.CruiseThreshold,
-                CrawlerConstants.AllowCoordinateJumps, CrawlerConstants.CoordinateJumpThreshold);
+            if (_manual)
+            {
+                BeginManualExport();
+                return;
+            }
             BeginContinuousFlight();
             _log.LogInfo(_flight.AchievementSummary);
             if (_pauseRequested || !Pending())
             {
-                ReturnHome();
+                StopHere();
                 return;
             }
-            _testTarget = _player.transform.position + Vector3.up * 15f;
+            var point = _player.transform.position;
+            _testTarget = new Vector3(point.x, SurfaceHeight.Read(point) + CrawlerConstants.Clearance, point.z);
             _testUntil = 0f;
             _phase = CrawlPhase.Testing;
-            Say("Testing movement, then starting the automatic route. Press F8 to pause and return.");
+            Say("Testing movement, then starting the automatic route. Press F8 to pause and land here.");
         }
 
         // Holds a recovered airborne player before large export files are checked on a worker.
@@ -66,8 +70,8 @@ namespace Landoria.WorldCrawler.Runtime
             {
                 return;
             }
-            _flight = new FlightController { Speed = CrawlerConstants.Speed };
-            _flight.Begin(_player, SessionCheckpoint.Origin(store), SessionCheckpoint.Rotation(store));
+            _flight = new FlightController { Speed = CrawlerConstants.Speed, Manual = _manual };
+            _flight.Begin(_player, _player.transform.position, _player.transform.rotation);
         }
     }
 }

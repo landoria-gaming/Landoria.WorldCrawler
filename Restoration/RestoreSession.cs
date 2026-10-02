@@ -13,6 +13,8 @@ namespace Landoria.WorldCrawler.Restoration
     internal sealed class RestoreSession : IDisposable
     {
         private readonly Player _player;
+        private readonly bool _manual;
+        private CharacterCheatMarker _characterMarker;
         private Task<ExportArchive> _loading;
         private readonly PreparedWorld _marker;
         public WorldIdentity World
@@ -38,12 +40,13 @@ namespace Landoria.WorldCrawler.Restoration
         public Task ReleaseTask { get; private set; } = Task.CompletedTask;
 
         // Validates local ownership before opening a target-bound recovery journal.
-        public RestoreSession(RestoreSelection restoration)
+        public RestoreSession(RestoreSelection restoration, bool manual = false)
         {
             LatestWorldApi.RequireCurrent();
             LegacyItemData.Validate();
             GeneratedObjectMatch.Validate();
             _player = Player.m_localPlayer;
+            _manual = manual;
             World = GameContext.Identity();
             Check();
             WorldDirectory = LatestWorldApi.DirectoryFor(ZNet.World);
@@ -59,10 +62,6 @@ namespace Landoria.WorldCrawler.Restoration
             Journal = new RestoreJournal(CrawlerConstants.ExportRoot, _marker, character);
             try
             {
-                if (Journal.State.ReturnPending)
-                {
-                    StartFlight(CrawlerConstants.Speed);
-                }
                 _loading = Task.Run(() => new ExportArchive(source));
             }
             catch
@@ -82,11 +81,11 @@ namespace Landoria.WorldCrawler.Restoration
         // Refuses remote servers, other players, cloud saves and session changes on every frame.
         public void Check()
         {
-            if (!GameContext.Ready(Flight?.NativeTransitActive == true) || !GameContext.SameSession(World, _player) ||
+            if (!GameContext.Ready(_manual) || !GameContext.SameSession(World, _player) ||
                 !ZNet.instance.IsServer() || ZNet.instance.IsDedicated() || ZNet.instance.GetPeers().Count != 0 ||
                 ZNet.World.m_fileSource != LatestWorldApi.LocalSource)
             {
-                throw new InvalidOperationException("Restoration requires the same local world, alone, with a living test character.");
+                throw new InvalidOperationException("Restoration requires the same local world, alone, with a living character.");
             }
         }
 
@@ -108,28 +107,31 @@ namespace Landoria.WorldCrawler.Restoration
             return true;
         }
 
-        // Saves the return checkpoint before any controlled travel or import mutation.
+        // Preserves the active character before resetting its requested cheat marker.
+        public void PrepareCharacter(Action<string> log)
+        {
+            _characterMarker = new CharacterCheatMarker(System.IO.Path.Combine(Journal.DirectoryPath, "characters"), log);
+            _characterMarker.Begin();
+        }
+
+        // Clears only the bound character flag when a restoration session ends normally.
+        public void FinishCharacter()
+        {
+            _characterMarker?.Clear();
+        }
+
+        // Starts protected travel from the current position, never a saved origin.
         public void StartFlight(float speed)
         {
             if (Flight != null && Flight.Active)
             {
                 return;
             }
-            Flight = new FlightController { Speed = speed };
-            var state = Journal.State;
-            if (state.ReturnPending)
-            {
-                Flight.Begin(_player, ObjectRestorer.Vector(state.ReturnPosition), ObjectRestorer.Rotation(state.ReturnRotation));
-            }
-            else
-            {
-                Flight.Begin(_player);
-                state.ReturnPosition = Capture.CaptureTransform.Vector(Flight.Origin);
-                state.ReturnRotation = Capture.CaptureTransform.Rotation(Flight.OriginRotation);
-                state.ReturnPending = true;
-            }
-            state.Status = "restoring";
-            state.Error = null;
+            Flight = new FlightController { Speed = speed, Manual = _manual };
+            Flight.Begin(_player, _player.transform.position, _player.transform.rotation);
+            Journal.State.ReturnPending = false;
+            Journal.State.Status = "restoring";
+            Journal.State.Error = null;
             Journal.Save();
         }
 

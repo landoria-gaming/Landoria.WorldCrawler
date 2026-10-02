@@ -35,7 +35,7 @@ namespace Landoria.WorldCrawler.Restoration
             }
         }
 
-        // Accepts additive captures for new targets while preserving exact binding for older markers.
+        // Accepts additions and verified recaptures for new targets while preserving exact binding for older markers.
         public void ValidateArchive(ExportArchive archive)
         {
             Validate(archive.Manifest.World, ExportFingerprint);
@@ -52,7 +52,7 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 throw new InvalidDataException("Select the original export series for this prepared world.");
             }
-            archive.RequireUnchanged(InitialZones);
+            archive.RequirePresent(InitialZones);
         }
     }
 }

@@ -39,7 +39,13 @@ namespace Landoria.WorldCrawler.Runtime
         {
             if (_pauseRequested)
             {
-                ReturnHome();
+                StopHere();
+                return;
+            }
+            if (_manual)
+            {
+                _zone = null;
+                _phase = CrawlPhase.ManualWaiting;
                 return;
             }
             RefreshPersonalPins();
@@ -48,7 +54,7 @@ namespace Landoria.WorldCrawler.Runtime
                 .OrderBy(z => DistanceSquared(z, position)).ThenBy(z => z.Z).ThenBy(z => z.X).FirstOrDefault();
             if (_zone == null)
             {
-                ReturnHome();
+                StopHere();
                 return;
             }
             _phase = CrawlPhase.Travelling;
@@ -104,24 +110,11 @@ namespace Landoria.WorldCrawler.Runtime
             var z = _zone.Z;
             var version = GameContext.GameVersion;
             var store = _store;
-            var labels = ZoneExportReport.Labels(result);
-            _write = Task.Run(() =>
-            {
-                store.WriteZone(x, z, result.Encode(), version, result.Objects.Count);
-                try
-                {
-                    ZoneTextJournal.Append(store.DirectoryPath, result, version, labels);
-                }
-                catch (Exception error)
-                {
-                    _log.LogWarning("Zone saved, but export-summary.txt could not be appended: " + error.Message);
-                }
-            }
-);
+            _write = Task.Run(() => store.WriteZone(x, z, result.Encode(), version, result.Objects.Count));
             _phase = CrawlPhase.Writing;
         }
 
-        // Waits for the committed checkpoint before choosing the next zone or returning.
+        // Waits for the committed checkpoint before choosing the next zone or stopping here.
         private void FinishWrite()
         {
             CaptureMovement();

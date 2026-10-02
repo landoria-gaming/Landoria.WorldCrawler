@@ -207,6 +207,7 @@ namespace Landoria.WorldCrawler.Capture
                 return;
             }
             var item = _reader.Read(source, _x, _z);
+            Landoria.WorldCrawler.Flight.ReceiveMotionGate.Worked();
             var key = item.SourceUser + ":" + item.SourceId + ":" + item.PrefabHash;
             _shape.Add(key, _receiver.TracksUpdates(item.PrefabHash) ? item.DataRevision : 0u);
             _sample.Add(item);

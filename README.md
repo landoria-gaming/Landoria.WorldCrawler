@@ -13,33 +13,46 @@ Sometimes, a world is simply too good to lose:
 - A public or community server is about to shut down or be wiped, and players want to **keep a local copy of their bases and builds**.
 - Players want to continue the adventure in Singleplayer, without having to rely on the server being online.
 
-## How it works
+## Controls
 
-- The mod starts by scanning the areas your character has already discovered.
-- It does **not** export every piece of data from the entire world. It focuses on selected locations instead.
-- It captures the zones within **80 metres** of known portals and landmarks you have marked on the map.
-- Landmarks using the simple round icon are ignored.
-- Your character automatically flies between the selected locations and records the buildings, terrain changes, chest contents, signs, and displayed items sent by the server.
-- Client-only: no server installation needed. Get the server owner's permission first.
+| Key | Action |
+| --- | --- |
+| **F8** | Start, stop, or resume automatic export. |
+| **Left Ctrl+F8** | Start or stop manual export; recapture visited selected zones. |
+| **F9** | At the main menu, prepare a local world from the latest export. |
+| **F10** | Start, stop, or resume automatic restoration of unfinished zones. |
+| **Left Ctrl+F10** | Start or stop manual restoration; redo visited exported zones. |
+| **Movement keys** | Fly horizontally in manual mode. |
+| **Jump / Crouch** | Fly up / down in manual mode. |
+| **Alt + map click** | Teleport when idle or in manual mode. |
 
 ## How to use
 
 ### 1. Export the server world
 
-Join the source world with your usual character and press `F8`. Your character automatically flies between the selected areas to capture and save the world data. Add a personal **Home** pin to include a missing revealed area. Press `F8` to pause or resume.
+Join the source world, then choose:
+
+- **Automatic — F8:** your character flies between the selected areas to capture their data.
+- **Manual — Left Ctrl+F8:** you fly or teleport to selected areas to capture them again, even if already saved.
+- Areas within **80 m** of discovered portals and landmarks are selected. Add a personal **Home** pin to include a missing revealed area; plain dots and death pins are ignored.
+- Press the same shortcut to stop or resume. Zone files are replaced safely, without duplicates.
 
 ### 2. Create the local world
 
-Return to the main menu and press `F9`. Select the export and confirm. The mod creates a local world with the same name, seed, and UID.
+At the main menu, press **F9**. Confirm **Yes** to create or reuse a world from the latest export, with the same name, seed, and UID.
 
 ### 3. Restore the exported areas
 
-Back up your character, enter the new local world, and press `F10`. Your character automatically flies between the saved areas to restore the world data. Press `F10` to pause or resume without starting over.
+Enter the new local world, then choose:
+
+- **Automatic — F10:** your character flies through unfinished zones to restore their data.
+- **Manual — Left Ctrl+F10:** you fly or teleport to exported zones to restore them, even if already restored.
+- Press the same shortcut to stop or resume.
+- Both modes share progress and reuse objects. Each zone is imported, cleaned, checked, and saved before being marked complete.
+- Cleanup keeps creatures, player-owned objects, and types never found anywhere in the export. A safety backup is kept.
 
 ## Screenshot
 
-<img src="https://raw.githubusercontent.com/landoria-gaming/Landoria.WorldCrawler/refs/heads/main/assets/world-crawler-map.png" alt="World Crawler exporting landmark zones on the Valheim map" width="500">
+<img src="https://raw.githubusercontent.com/landoria-gaming/Landoria.WorldCrawler/refs/heads/main/assets/world-crawler-map.png" alt="World Crawler map progress" width="500">
 
-## Contact
-
-Report bugs through [GitHub Issues](https://github.com/landoria-gaming/Landoria.WorldCrawler/issues).
+[Report a bug](https://github.com/landoria-gaming/Landoria.WorldCrawler/issues).

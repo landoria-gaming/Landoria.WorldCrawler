@@ -24,7 +24,7 @@ namespace Landoria.WorldCrawler.Restoration
                 return;
             }
             var state = _session.Journal.State;
-            if (!string.IsNullOrEmpty(state.BackupDirectory))
+            if (!_manual && !string.IsNullOrEmpty(state.BackupDirectory))
             {
                 if (!Directory.Exists(state.BackupDirectory))
                 {
@@ -54,20 +54,27 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 throw new IOException("The native world changed during backup. No restoration was started; retry.");
             }
-            _session.Journal.State.BackupDirectory = path;
-            _session.Journal.Save();
-            _log.LogInfo("Verified pre-restoration backup: " + path);
+            if (!_manual)
+            {
+                _session.Journal.State.BackupDirectory = path;
+                _session.Journal.Save();
+            }
+            _log.LogInfo("Verified pre-" + Operation.ToLowerInvariant() + " backup: " + path);
             BeginRoute();
         }
 
-        // Reuses controlled flight after storing the original return position.
+        // Starts automatic flight or waits for the user's manual movement.
         private void BeginRoute()
         {
+            _session.PrepareCharacter(message => _log.LogInfo(message));
+            if (_manual)
+            {
+                BeginManualMode();
+                return;
+            }
             _session.StartFlight(CrawlerConstants.Speed);
-            _navigation = new TravelNavigator(_session.Flight, Player.m_localPlayer, CrawlerConstants.Clearance,
-                CrawlerConstants.PreferPortals, CrawlerConstants.CruiseSpeed, CrawlerConstants.CruiseThreshold,
-                CrawlerConstants.AllowCoordinateJumps, CrawlerConstants.CoordinateJumpThreshold);
-            _restoreNavigation = new RestoreFlightNavigator(_session.Flight, Player.m_localPlayer);
+            _restoreNavigation = new RestoreFlightNavigator(_session.Flight, Player.m_localPlayer,
+                CrawlerConstants.SprintMultiplier, CrawlerConstants.SprintMultiplier);
             _motionGate = new ReceiveMotionGate(Player.m_localPlayer, CrawlerConstants.ZoneTimeout);
             RestoreProtection.Active = true;
             AddWarning("Client observations cannot prove server absence. Flagged natural-resource cleanup requires review.");
@@ -75,7 +82,7 @@ namespace Landoria.WorldCrawler.Restoration
             NextZone();
         }
 
-        // Chooses the closest unfinished captured zone without consulting the test character's map.
+        // Chooses the closest unfinished captured zone without consulting the character's map.
         private void NextZone()
         {
             if (_session.Journal.State.Completed.Count == _session.Archive.Manifest.Zones.Count)
@@ -83,7 +90,7 @@ namespace Landoria.WorldCrawler.Restoration
                 if (_session.Archive.Manifest.Zones.Count < _session.Archive.PlannedZoneCount)
                 {
                     AddWarning("Available captures restored. Building support protection remains active until the remaining source zones are exported and restored.");
-                    ReturnHome();
+                    StopHere();
                     return;
                 }
                 _scan = _session.Archive.Records.GetEnumerator();
@@ -92,7 +99,7 @@ namespace Landoria.WorldCrawler.Restoration
             }
             if (_pause)
             {
-                ReturnHome();
+                StopHere();
                 return;
             }
             var position = Player.m_localPlayer.transform.position;
@@ -101,7 +108,7 @@ namespace Landoria.WorldCrawler.Restoration
                 .ThenBy(v => v.Z).ThenBy(v => v.X).FirstOrDefault();
             if (_zone == null)
             {
-                ReturnHome();
+                StopHere();
                 return;
             }
             _phase = RestorePhase.Travelling;
@@ -112,7 +119,7 @@ namespace Landoria.WorldCrawler.Restoration
         {
             if (_pause)
             {
-                ReturnHome();
+                StopHere();
                 return;
             }
             if (HoldForReception())
@@ -151,8 +158,8 @@ namespace Landoria.WorldCrawler.Restoration
             if (hold != _receiveHold)
             {
                 _receiveHold = hold;
-                _log.LogInfo(hold ? "Restoration flight paused: receiving nearby world data."
-                    : "Restoration flight resumed: nearby world data is quiet.");
+                _log.LogInfo(hold ? Operation + " flight paused: receiving nearby world data."
+                    : Operation + " flight resumed: nearby world data is quiet.");
             }
             return hold;
         }
@@ -160,7 +167,7 @@ namespace Landoria.WorldCrawler.Restoration
         // Hands validated files to a bounded main-thread restorer.
         private void ReadZone()
         {
-            if (!_read.IsCompleted)
+            if (!_read.IsCompleted || !ManualZoneReady())
             {
                 return;
             }
@@ -169,7 +176,7 @@ namespace Landoria.WorldCrawler.Restoration
             var data = read.GetAwaiter().GetResult();
             if (_pause)
             {
-                ReturnHome();
+                StopHere();
                 return;
             }
             _writer = new ZoneRestorer(_objects, data.Records, data.Snapshot, _zone, AddWarning);
@@ -184,7 +191,7 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return;
             }
-            _scan = ((IEnumerable<CapturedObject>)_session.Archive.Connections).GetEnumerator();
+            _scan = _session.Archive.Connections.AsEnumerable().GetEnumerator();
             _phase = RestorePhase.Connecting;
         }
 
@@ -220,7 +227,12 @@ namespace Landoria.WorldCrawler.Restoration
             if (_finalSave)
             {
                 _finalSave = false;
-                ReturnHome();
+                if (_manual && !_pause)
+                {
+                    _phase = RestorePhase.ManualWaiting;
+                    return;
+                }
+                StopHere();
                 return;
             }
             var key = ZoneKey(_zone.X, _zone.Z);
@@ -232,6 +244,11 @@ namespace Landoria.WorldCrawler.Restoration
             _writer = null;
             _waitingSince = 0f;
             _log.LogInfo("Restored and native-saved zone " + key);
+            if (_manual)
+            {
+                FinishManualZone();
+                return;
+            }
             NextZone();
         }
 
@@ -254,7 +271,8 @@ namespace Landoria.WorldCrawler.Restoration
                 var target = _objects.Resolve(_scan.Current);
                 if (target == null)
                 {
-                    throw new InvalidOperationException("An imported object disappeared before finalization.");
+                    AddWarning(RestoreWarnings.Describe(_scan.Current) + "; imported object is no longer present at finalization.");
+                    continue;
                 }
                 target.Set("WorldCrawler.pending", false);
                 ObjectRestorer.Refresh(target);

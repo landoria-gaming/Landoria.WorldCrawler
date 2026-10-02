@@ -40,15 +40,17 @@ namespace Landoria.WorldCrawler.Restoration
         // Resolves the current game's local save root without guessing its directory layout.
         public static string SaveRoot()
         {
-            return (string)Call(typeof(SaveSystem), null, "GetWorldsSaveRootPath",
+            var root = (string)Call(typeof(SaveSystem), null, "GetWorldsSaveRootPath",
                 new[] { typeof(FileHelpers.FileSource) }, LocalSource);
+            return LocalSavePath.Root(root, Utils.GetSaveDataPath(LocalSource));
         }
 
         // Resolves the chunked save folder of the selected world.
         public static string DirectoryFor(World world)
         {
-            return Path.GetFullPath((string)Call(typeof(World), world, "GetSaveDirectory",
-                new[] { typeof(FileHelpers.FileSource) }, LocalSource));
+            var directory = (string)Call(typeof(World), world, "GetSaveDirectory",
+                new[] { typeof(FileHelpers.FileSource) }, LocalSource);
+            return LocalSavePath.World(directory, SaveRoot(), world.m_name);
         }
 
         // Uses the current engine's metadata writer rather than constructing an old FWL file.

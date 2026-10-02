@@ -20,17 +20,19 @@ namespace Landoria.WorldCrawler.Restoration
         private readonly List<ZDO> _zone = new List<ZDO>();
         private readonly HashSet<ZDOID> _claimed = new HashSet<ZDOID>();
         private readonly CaptureApi _api = new CaptureApi();
+        private readonly GeneratedCleanup _cleanup;
         private static readonly MethodInfo RemoveView = typeof(ZNetScene).GetMethod("OnZDODestroyed",
             BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(ZDO) }, null);
 
         // Shares a durable mapping with the journal while keeping lookups efficient.
-        public ObjectRestorer(string fingerprint, RestoreState state, Action<string> warning)
+        public ObjectRestorer(string fingerprint, RestoreState state, CleanupSourceIndex source, Action<string> warning)
         {
             _fingerprint = fingerprint;
             _state = state;
             _map = state.Objects.ToDictionary(v => v.Source, StringComparer.Ordinal);
             _identities = new RestoreIdentityIndex(fingerprint);
             _warning = warning;
+            _cleanup = new GeneratedCleanup(source, warning);
             if (RemoveView == null)
             {
                 throw new MissingMethodException("ZNetScene.OnZDODestroyed(ZDO)");
@@ -75,43 +77,10 @@ namespace Landoria.WorldCrawler.Restoration
             _claimed.Clear();
         }
 
-        // Deletes only unclaimed, world-generated natural resources from a fully observed source sector.
-        public int RemoveAbsentNaturalResources(bool completeObservation)
+        // Uses one source-aware cleanup policy for both restoration and manual repair.
+        public int CleanupZone(int x, int z)
         {
-            if (!completeObservation)
-            {
-                return 0;
-            }
-            var removed = 0;
-            foreach (var target in _zone.ToList())
-            {
-                if (target == null || !target.IsValid() || _claimed.Contains(target.m_uid)
-                    || target.GetLong("creator", 0L) != 0L
-                    || !string.IsNullOrEmpty(target.GetString(IdentityTag, "")))
-                {
-                    continue;
-                }
-                var prefab = ZNetScene.instance.GetPrefab(target.GetPrefab());
-                if (!NaturalResource(prefab) || RestoreProtection.Protected(prefab))
-                {
-                    continue;
-                }
-                var instance = ZNetScene.instance.FindInstance(target);
-                if (instance != null && RestoreProtection.Protected(instance.gameObject))
-                {
-                    continue;
-                }
-                ZDOMan.instance.DestroyZDO(target);
-                removed++;
-            }
-            return removed;
-        }
-
-        // Restricts destructive reconciliation to mined/picked natural nodes with stable native components.
-        private static bool NaturalResource(GameObject prefab)
-        {
-            return prefab != null && (prefab.GetComponent<MineRock>() != null
-                || prefab.GetComponent<MineRock5>() != null || prefab.GetComponent<TreeBase>() != null);
+            return _cleanup.Run(x, z, _zone, _claimed);
         }
 
         // Restores once by ID, falling back to tagged or unambiguous exact generated matches.

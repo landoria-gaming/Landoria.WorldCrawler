@@ -1,4 +1,5 @@
 using Landoria.WorldCrawler.Flight;
+using Landoria.WorldCrawler.Restoration;
 using Landoria.WorldCrawler.Storage;
 using UnityEngine;
 
@@ -8,7 +9,7 @@ namespace Landoria.WorldCrawler.Runtime
     internal sealed class ContinuousCaptureFlight
     {
         private readonly Player _player;
-        private readonly TravelNavigator _navigation;
+        private readonly RestoreFlightNavigator _navigation;
         private Vector2 _exit;
         internal float Speed
         {
@@ -19,9 +20,10 @@ namespace Landoria.WorldCrawler.Runtime
         internal ContinuousCaptureFlight(Player player, FlightController flight, float clearance)
         {
             _player = player;
-            Speed = SprintFlightSpeed.Read(player);
+            Speed = SprintFlightSpeed.Read(player) * CrawlerConstants.SprintMultiplier;
             flight.Speed = Speed;
-            _navigation = new TravelNavigator(flight, player, clearance, false, Speed, 10000f, false);
+            _navigation = new RestoreFlightNavigator(flight, player,
+                CrawlerConstants.SprintMultiplier, CrawlerConstants.SprintMultiplier);
         }
 
         // Starts observation on approach once the source sector is genuinely resident.

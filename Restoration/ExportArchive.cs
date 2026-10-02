@@ -14,6 +14,7 @@ namespace Landoria.WorldCrawler.Restoration
     {
         private readonly FileStream _lock;
         private readonly Dictionary<string, CapturedObject> _latest = new Dictionary<string, CapturedObject>();
+        internal CleanupSourceIndex Cleanup { get; } = new CleanupSourceIndex();
         public string DirectoryPath
         {
             get;
@@ -61,6 +62,7 @@ namespace Landoria.WorldCrawler.Restoration
                 foreach (var zone in Manifest.Zones.OrderBy(z => z.Z).ThenBy(z => z.X))
                 {
                     var snapshot = ReadZone(zone);
+                    Cleanup.Observe(snapshot);
                     signature.Append(zone.FileName).Append(':').Append(zone.Checksum).Append('\n');
                     foreach (var item in snapshot.Objects)
                     {
@@ -103,6 +105,16 @@ namespace Landoria.WorldCrawler.Restoration
             return Manifest.Zones.ToDictionary(zone => zone.X.ToString(CultureInfo.InvariantCulture) + ":" +
                 zone.Z.ToString(CultureInfo.InvariantCulture), zone => zone.CaptureVersion + ":" +
                 zone.ObjectCount.ToString(CultureInfo.InvariantCulture) + ":" + zone.Checksum, StringComparer.Ordinal);
+        }
+
+        // Refuses removed captures while allowing valid replacement snapshots within the same series.
+        public void RequirePresent(Dictionary<string, string> previous)
+        {
+            var current = ZoneSignatures();
+            if (previous == null || previous.Keys.Any(key => !current.ContainsKey(key)))
+            {
+                throw new InvalidDataException("Previously accepted zones disappeared from the export.");
+            }
         }
 
         // Refuses changed or removed old captures before extending an existing restoration.

@@ -10,16 +10,20 @@ namespace Landoria.WorldCrawler.Restoration
         private readonly FlightController _flight;
         private readonly Player _player;
         private readonly float _sprintSpeed;
+        private readonly float _travelMultiplier;
+        private readonly float _approachMultiplier;
 
         // Uses the player's native sprint speed as the observable restoration pace.
-        internal RestoreFlightNavigator(FlightController flight, Player player)
+        internal RestoreFlightNavigator(FlightController flight, Player player, float travelMultiplier = 2f, float approachMultiplier = 1f)
         {
             _flight = flight;
             _player = player;
             _sprintSpeed = SprintFlightSpeed.Read(player);
+            _travelMultiplier = travelMultiplier;
+            _approachMultiplier = approachMultiplier;
         }
 
-        // Uses double sprint between distant zones and slows near the zone being restored.
+        // Uses the selected travel pace while following the surface without skipping zone centers.
         internal bool Travel(float x, float z, float deltaTime)
         {
             var current = _player.transform.position;
@@ -27,7 +31,7 @@ namespace Landoria.WorldCrawler.Restoration
             var horizontal = new Vector3(current.x, 0f, current.z);
             var distance = Vector3.Distance(horizontal, destination);
             var speed = distance >= CrawlerConstants.RestoreFastTravelDistance
-                ? _sprintSpeed * 2f : _sprintSpeed;
+                ? _sprintSpeed * _travelMultiplier : _sprintSpeed * _approachMultiplier;
             _flight.Speed = Mathf.Clamp(speed, 1f, 100f);
             var step = Mathf.Clamp(_flight.Speed * deltaTime, 0.1f, 10f);
             var next = Vector3.MoveTowards(horizontal, destination, step);

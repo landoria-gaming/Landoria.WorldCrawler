@@ -4,6 +4,6 @@ namespace Landoria.WorldCrawler.Restoration
     internal enum RestorePhase
     {
         Idle, Preparing, Preflight, InitialSave, Backup, Travelling, Reading,
-        Restoring, Connecting, RequestSave, Saving, Finalizing, Returning, Landing, Stopped
+        Restoring, Connecting, RequestSave, Saving, Finalizing, ManualWaiting, Landing, Stopped
     }
 }

@@ -76,6 +76,15 @@ namespace Landoria.WorldCrawler.Flight
             }
         }
 
+        // Extends the quiet window only when capture or restoration actually processes data.
+        internal static void Worked()
+        {
+            if (_current != null)
+            {
+                _current._lastReceived = Time.realtimeSinceStartup;
+            }
+        }
+
         // Resumes after two quiet seconds and fails safely instead of holding an unattended player forever.
         internal bool Hold()
         {

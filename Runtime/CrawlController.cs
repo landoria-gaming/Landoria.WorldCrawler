@@ -18,7 +18,6 @@ namespace Landoria.WorldCrawler.Runtime
         private WorldIdentity _world;
         private Player _player;
         private FlightController _flight;
-        private TravelNavigator _navigation;
         private ZoneCaptureSession _capture;
         private ZoneEntry _zone;
         private Task _write;
@@ -27,7 +26,7 @@ namespace Landoria.WorldCrawler.Runtime
         private bool _pauseRequested;
         private float _testUntil;
         private float _nextMessage;
-        private float _landingSince;
+        private FlightLanding _landing;
         private float _nextPinRefresh;
         private Vector3 _testTarget;
         public bool Busy => Active() || _closing != null && !_closing.IsCompleted;
@@ -39,20 +38,26 @@ namespace Landoria.WorldCrawler.Runtime
         }
 
         // Starts a crawl or requests a pause at the next committed operation boundary.
-        public void Toggle()
+        public void Toggle(bool manual = false)
         {
             try
             {
-                if (_phase == CrawlPhase.Returning || _phase == CrawlPhase.Landing)
+                if (_phase == CrawlPhase.Landing)
                 {
                     return;
                 }
                 if (Active())
                 {
+                    if (_manual != manual)
+                    {
+                        Say("Stop the active mode with its own shortcut before switching.");
+                        return;
+                    }
                     _pauseRequested = true;
-                    Say("Pause requested; saving, then returning to the starting point.");
+                    Say("Pause requested; saving, then landing here.");
                     return;
                 }
+                _manual = manual;
                 Start();
             }
             catch (Exception error)
@@ -64,7 +69,7 @@ namespace Landoria.WorldCrawler.Runtime
         // Opens a frozen inventory while keeping game data access on Unity's main thread.
         private void Start()
         {
-            if (!GameContext.Ready())
+            if (!GameContext.Ready(_manual))
             {
                 Say("Join a world and wait for the map to load before pressing F8.");
                 return;
@@ -80,6 +85,7 @@ namespace Landoria.WorldCrawler.Runtime
             }
             _closing = null;
             CloseStore();
+            _lastManualZone = null;
             _world = GameContext.Identity();
             _player = Player.m_localPlayer;
             _pauseRequested = false;
@@ -114,9 +120,17 @@ namespace Landoria.WorldCrawler.Runtime
                 {
                     return;
                 }
-                if (_phase == CrawlPhase.Preparing && _flight != null && _flight.Active)
+                if (ManualExportTransit())
+                {
+                    return;
+                }
+                if (!_manual && _phase == CrawlPhase.Preparing && _flight != null && _flight.Active)
                 {
                     _flight.Tick(_player.transform.position, Time.unscaledDeltaTime);
+                }
+                if (_manual && _flight?.Active == true)
+                {
+                    _flight.TickManual(_phase != CrawlPhase.ManualWaiting || HoldForReception(), Time.unscaledDeltaTime);
                 }
                 Advance();
                 ReportProgress();
@@ -140,12 +154,15 @@ namespace Landoria.WorldCrawler.Runtime
                 FinishWrite();
                 return;
             }
-            if (_pauseRequested && _phase != CrawlPhase.Returning && _phase != CrawlPhase.Landing)
+            if (_pauseRequested && _phase != CrawlPhase.Landing)
             {
-                ReturnHome();
+                StopHere();
             }
             switch (_phase)
             {
+                case CrawlPhase.ManualWaiting:
+                    WaitForManualExport();
+                    break;
                 case CrawlPhase.Testing:
                     TestMovement();
                     break;
@@ -155,9 +172,6 @@ namespace Landoria.WorldCrawler.Runtime
                 case CrawlPhase.Capturing:
                     Capture();
                     break;
-                case CrawlPhase.Returning:
-                    Return();
-                    break;
                 case CrawlPhase.Landing:
                     Land();
                     break;
@@ -165,8 +179,8 @@ namespace Landoria.WorldCrawler.Runtime
         }
 
 
-        // Returns through the same controlled flight after finishing any disk operation.
-        private void ReturnHome()
+        // Stops the route and lands locally after finishing the current disk operation.
+        private void StopHere()
         {
             _capture?.Dispose();
             _capture = null;
@@ -174,41 +188,23 @@ namespace Landoria.WorldCrawler.Runtime
             {
                 _zone.Status = "pending";
             }
-            SessionCheckpoint.SetState(_store, "returning", null);
-            _phase = CrawlPhase.Returning;
-            Say("Progress saved. Returning to the starting point...");
-        }
-
-        // Waits for the origin area to load before descending to the saved position.
-        private void Return()
-        {
-            var origin = SessionCheckpoint.Origin(_store);
-            if (!_navigation.Travel(origin.x, origin.z, Time.unscaledDeltaTime, true))
+            SessionCheckpoint.SetState(_store, "stopping", null);
+            if (_manual)
             {
-                return;
+                _flight?.Abort();
             }
-            _landingSince = Time.unscaledTime;
+            _landing = new FlightLanding(_flight, _player);
             _phase = CrawlPhase.Landing;
+            Say("Progress saved. Landing here; no return to the starting point.");
         }
 
-        // Restores normal physics only after returning to a loaded origin area.
+        // Ends controlled flight at the current horizontal location.
         private void Land()
         {
-            var origin = SessionCheckpoint.Origin(_store);
-            if (!ZNetScene.instance.IsAreaReady(origin))
-            {
-                _flight.Tick(_player.transform.position, Time.unscaledDeltaTime);
-                if (Time.unscaledTime - _landingSince > 120f)
-                {
-                    throw new TimeoutException("Return area did not load.");
-                }
-                return;
-            }
-            if (!_flight.Tick(origin, Time.unscaledDeltaTime))
+            if (!_landing.Step(Time.unscaledDeltaTime))
             {
                 return;
             }
-            _flight.End();
             SessionCheckpoint.Finish(_store, !Pending());
             _phase = Pending() ? CrawlPhase.Paused : CrawlPhase.Completed;
             Say(_phase == CrawlPhase.Completed ? "Export complete. All selected zones are saved."

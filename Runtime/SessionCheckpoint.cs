@@ -4,14 +4,13 @@ using UnityEngine;
 
 namespace Landoria.WorldCrawler.Runtime
 {
-    // Persists the return location before moving so interruptions remain recoverable.
+    // Tracks controlled-flight recovery without returning to any stored location.
     internal static class SessionCheckpoint
     {
-        // Creates a return checkpoint once, retaining it through disconnect and resume.
+        // Records the current flight start only for diagnostics and airborne recovery.
         public static void Begin(WorldStore store, Player player)
         {
             var manifest = store.Manifest;
-            if (!manifest.ReturnPending)
             {
                 var position = player.transform.position;
                 var rotation = player.transform.rotation;
@@ -24,14 +23,14 @@ namespace Landoria.WorldCrawler.Runtime
             SetState(store, "crawling", null);
         }
 
-        // Reads the original return position after storage validation.
+        // Reads legacy position metadata for diagnostics only.
         public static Vector3 Origin(WorldStore store)
         {
             var values = store.Manifest.ReturnPosition;
             return new Vector3(values[0], values[1], values[2]);
         }
 
-        // Reads the original return orientation after storage validation.
+        // Reads legacy orientation metadata for diagnostics only.
         public static Quaternion Rotation(WorldStore store)
         {
             var values = store.Manifest.ReturnRotation;
@@ -46,7 +45,7 @@ namespace Landoria.WorldCrawler.Runtime
             store.Save();
         }
 
-        // Clears the return checkpoint only after flight has ended at the original position.
+        // Clears airborne recovery once the character has landed at its current location.
         public static void Finish(WorldStore store, bool completed)
         {
             store.Manifest.ReturnPending = false;

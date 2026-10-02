@@ -13,7 +13,7 @@ namespace Landoria.WorldCrawler.Runtime
         private ReceiveMotionGate _motionGate;
         private bool _receiveHold;
 
-        // Selects native sprint travel for F8 without changing the existing return route.
+        // Selects native sprint travel for F8 without any automatic teleportation.
         private void BeginContinuousFlight()
         {
             _receiveHold = false;
@@ -42,9 +42,12 @@ namespace Landoria.WorldCrawler.Runtime
         // Opens a capture on approach and reserves an in-sector exit while network checks run.
         private void StartCapture()
         {
-            _zone.Status = "loaded";
-            _zone.UpdatedUtc = DateTime.UtcNow.ToString("o");
-            _store.Save();
+            if (_zone.Status != "captured")
+            {
+                _zone.Status = "loaded";
+                _zone.UpdatedUtc = DateTime.UtcNow.ToString("o");
+                _store.Save();
+            }
             _capture = new ZoneCaptureSession(_zone.X, _zone.Z);
             var next = _store.Manifest.Zones.Where(z => z != _zone && z.Status != "captured" && z.Status != "skipped")
                 .OrderBy(z => DistanceSquared(z, new Vector3(_zone.X * 64f, 0f, _zone.Z * 64f)))
@@ -56,6 +59,10 @@ namespace Landoria.WorldCrawler.Runtime
         // Advances the route while work proceeds, holding on actual reception or at the safe sector exit.
         private void CaptureMovement()
         {
+            if (_manual)
+            {
+                return;
+            }
             if (_continuous != null && !HoldForReception())
             {
                 _continuous.Tick(Time.unscaledDeltaTime);

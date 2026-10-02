@@ -18,8 +18,8 @@ namespace Landoria.WorldCrawler.Restoration
         [DataMember] public string Error;
         [DataMember] public string BackupDirectory;
         [DataMember] public bool ReturnPending;
-        [DataMember] public float[] ReturnPosition;
-        [DataMember] public float[] ReturnRotation;
+        [DataMember] public float[] ReturnPosition = null;
+        [DataMember] public float[] ReturnRotation = null;
         [DataMember] public List<string> Completed = new List<string>();
         [DataMember] public List<RestoredObject> Objects = new List<RestoredObject>();
         [DataMember] public List<string> Warnings = new List<string>();

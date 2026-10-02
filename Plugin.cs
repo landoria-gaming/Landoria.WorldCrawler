@@ -16,7 +16,7 @@ namespace Landoria.WorldCrawler
         internal const string PluginVersion = "1.0.0";
         private CrawlController _controller;
         private Harmony _harmony;
-        private PreparationWindow _preparation;
+        private WorldPreparation _preparation;
         private RestorationController _restoration;
         private ExportMapOverlay _mapOverlay;
 
@@ -25,14 +25,15 @@ namespace Landoria.WorldCrawler
         {
             GameContext.ValidateVersion();
             HudNotification.Initialize();
+            Flight.CharacterMarkerPolicy.Initialize(Logger);
             var selection = new RestoreSelection();
             _harmony = new Harmony(PluginGuid);
             _harmony.PatchAll(typeof(Plugin).Assembly);
             _controller = new CrawlController(Logger);
-            _preparation = new PreparationWindow(selection, Logger);
+            _preparation = new WorldPreparation(selection, Logger);
             _restoration = new RestorationController(selection, Logger);
-            _mapOverlay = new ExportMapOverlay(Logger);
-            Logger.LogInfo($"{PluginName} {PluginVersion} is loaded.");
+            _mapOverlay = new ExportMapOverlay(Logger, _controller, _restoration);
+            Logger.LogInfo($"{PluginName} {PluginVersion} is loaded. F10: remaining zones at 4x sprint. LeftCtrl+F10: toggle manual import.");
         }
 
         // Advances mutually exclusive world operations using fixed production shortcuts.
@@ -42,43 +43,60 @@ namespace Landoria.WorldCrawler
             {
                 return;
             }
+            Flight.CharacterMarkerPolicy.Enforce(Game.instance == null ? null : Game.instance.GetPlayerProfile());
             Flight.FlightController.ReleaseStaleControl();
             _preparation.Update();
+            HandleShortcut();
+            _controller.Update();
+            _restoration.Update();
+        }
+
+        // Dispatches shortcuts and reports when an active operation blocks manual cleanup.
+        private void HandleShortcut()
+        {
             try
             {
-                var action = ShortcutInput.Action();
-                if (action == 0 && !_restoration.Busy && !_preparation.Visible)
+                var action = ShortcutInput.Action(Logger);
+                if ((action == 0 || action == 4) && !_restoration.Busy && !_preparation.Busy)
                 {
-                    _controller.Toggle();
+                    _controller.Toggle(action == 4);
                 }
                 if (action == 1 && !_controller.Busy && !_restoration.Busy)
                 {
-                    _preparation.Toggle();
+                    _preparation.Start();
                 }
-                if (action == 2 && !_controller.Busy && !_preparation.Visible)
+                if (action == 2 && !_controller.Busy && !_preparation.Busy)
                 {
                     _restoration.Toggle();
                 }
+                HandleCurrentZoneShortcut(action);
             }
             catch (Exception error)
             {
                 Logger.LogWarning(error.Message);
                 HudNotification.Show(error.Message);
             }
-            _controller.Update();
-            _restoration.Update();
+        }
+
+        // Routes manual reimport through the shared restoration journal and writer.
+        private void HandleCurrentZoneShortcut(int action)
+        {
+            if (action != 3)
+            {
+                return;
+            }
+            if (_controller.Busy || _preparation.Busy)
+            {
+                throw new InvalidOperationException("Pause export or close world preparation before importing the current zone.");
+            }
+            Logger.LogInfo("LeftCtrl+F10 detected: toggling manual import.");
+            _restoration.Toggle(true);
         }
 
         // Follows the map viewport after Minimap has applied this frame's zoom and pan.
         private void LateUpdate()
         {
             _mapOverlay?.Update();
-        }
-
-        // Displays preparation selection and confirmation only in the supported main menu.
-        private void OnGUI()
-        {
-            _preparation?.Draw();
         }
 
         // Restores controlled physics and removes only this plugin's Harmony patches.

@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading.Tasks;
 using BepInEx.Logging;
 using Landoria.WorldCrawler.Storage;
+using Landoria.WorldCrawler.Restoration;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -15,6 +16,8 @@ namespace Landoria.WorldCrawler.Runtime
     {
         private const int BatchSize = 12000;
         private readonly ManualLogSource _log;
+        private readonly CrawlController _export;
+        private readonly RestorationController _restore;
         private readonly List<ExportMapOverlayGraphic> _capturedGraphics = new List<ExportMapOverlayGraphic>();
         private readonly List<ExportMapOverlayGraphic> _remainingGraphics = new List<ExportMapOverlayGraphic>();
         private ExportMapOverlayRegion[] _captured = Array.Empty<ExportMapOverlayRegion>();
@@ -30,9 +33,11 @@ namespace Landoria.WorldCrawler.Runtime
         private bool _disposed, _dataChanged;
 
         // Keeps all game access on the main thread and filesystem reads on one worker.
-        public ExportMapOverlay(ManualLogSource log)
+        public ExportMapOverlay(ManualLogSource log, CrawlController export, RestorationController restore)
         {
             _log = log;
+            _export = export;
+            _restore = restore;
         }
 
         // Refreshes the selected export lazily while only the large map is visible.
@@ -138,13 +143,41 @@ namespace Landoria.WorldCrawler.Runtime
             {
                 return;
             }
+            var active = _export.MapProgress() ?? _restore.MapProgress();
+            if (active != null)
+            {
+                ApplyRegions(active);
+                _nextRead = Time.realtimeSinceStartup + 1f;
+                return;
+            }
+            StartRead();
+        }
+
+        // Captures immutable filesystem arguments before starting the next background read.
+        private void StartRead()
+        {
+            var marker = RestorationMarker();
+            var root = _configuredRoot;
             var directory = _directory;
             var world = _world.Copy();
             var id = _profileId.ToString(CultureInfo.InvariantCulture);
             var radius = _radius;
             _readRevision = _revision;
             _nextRead = Time.realtimeSinceStartup + 5f;
-            _read = Task.Run(() => ExportMapOverlaySource.ReadProgress(directory, world, id, radius));
+            _read = Task.Run(() => marker == null ? ExportMapOverlaySource.ReadProgress(directory, world, id, radius) :
+                RestorationMapSource.Read(marker, root, directory, world));
+        }
+
+        // Detects only the currently loaded local prepared world, never a same-UID remote server.
+        private static string RestorationMarker()
+        {
+            if (!SupportedGameVersions.IsCurrent(GameContext.GameVersion) || !ZNet.instance.IsServer() ||
+                ZNet.World.m_fileSource != LatestWorldApi.LocalSource)
+            {
+                return null;
+            }
+            var path = Path.Combine(LatestWorldApi.DirectoryFor(ZNet.World), PreparedWorld.FileName);
+            return File.Exists(path) ? path : null;
         }
 
         // Avoids replacing identical immutable geometry when only unrelated progress changed.

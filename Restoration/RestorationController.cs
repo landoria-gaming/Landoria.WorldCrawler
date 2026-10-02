@@ -21,7 +21,6 @@ namespace Landoria.WorldCrawler.Restoration
         private RestorePhase _phase;
         private ObjectRestorer _objects;
         private RestoreWarnings _warnings;
-        private TravelNavigator _navigation;
         private RestoreFlightNavigator _restoreNavigation;
         private ReceiveMotionGate _motionGate;
         private bool _receiveHold;
@@ -48,12 +47,17 @@ namespace Landoria.WorldCrawler.Restoration
         }
 
         // Starts explicitly or pauses after the current restoration/save transaction.
-        public void Toggle()
+        public void Toggle(bool manual = false)
         {
             try
             {
                 if (Active)
                 {
+                    if (_manual != manual)
+                    {
+                        Say("Pause the active operation with its own shortcut before switching modes.");
+                        return;
+                    }
                     _pause = true;
                     Say("Pause requested after zone validation and saving.");
                     return;
@@ -68,12 +72,11 @@ namespace Landoria.WorldCrawler.Restoration
                     _log.LogError(_closing.Exception);
                 }
                 _closing = null;
-                _session = new RestoreSession(_options);
+                _manual = manual;
+                _session = new RestoreSession(_options, manual);
                 _pause = false;
                 _finalSave = false;
-                _zone = null;
-                _writer = null;
-                _waitingSince = 0;
+                ResetRoute();
                 _phase = RestorePhase.Preparing;
                 Say("Validating the export and prepared local world...");
             }
@@ -81,6 +84,17 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 Fail(error);
             }
+        }
+
+        // Clears only transient route state before a new operation starts.
+        private void ResetRoute()
+        {
+            _zone = null;
+            _lastManualZone = null;
+            _writer = null;
+            _waitingSince = 0;
+            _receiveHold = false;
+            _manualVisited = 0;
         }
 
         // Keeps game APIs on the main thread and stops immediately on loss of local authority.
@@ -93,19 +107,27 @@ namespace Landoria.WorldCrawler.Restoration
             try
             {
                 _session.Check();
+                if (ManualTransit())
+                {
+                    return;
+                }
                 if (Time.timeScale <= 0f)
                 {
                     return;
                 }
-                if (_phase != RestorePhase.Travelling && _phase != RestorePhase.Returning && _phase != RestorePhase.Landing)
+                if (!_manual && _phase != RestorePhase.Travelling && _phase != RestorePhase.Landing)
                 {
                     _session.Hold(Time.unscaledDeltaTime);
+                }
+                if (_manual && _session.Flight?.Active == true)
+                {
+                    _session.Flight.TickManual(_phase != RestorePhase.ManualWaiting || HoldForReception(), Time.unscaledDeltaTime);
                 }
                 Advance();
                 if (Active && Time.unscaledTime >= _nextMessage)
                 {
                     _nextMessage = Time.unscaledTime + 5f;
-                    HudNotification.Show($"Restoration: {_phase} | {_session.Journal.State.Completed.Count} validated zones");
+                    ShowProgress();
                 }
             }
             catch (Exception error)
@@ -137,7 +159,7 @@ namespace Landoria.WorldCrawler.Restoration
             }
         }
 
-        // Advances the prepared route, restoration transactions, and return flight.
+        // Advances automatic travel or manually visited zones and durable save transactions.
         private void AdvanceRoute()
         {
             switch (_phase)
@@ -163,8 +185,8 @@ namespace Landoria.WorldCrawler.Restoration
                 case RestorePhase.Finalizing:
                     FinalizeObjects();
                     break;
-                case RestorePhase.Returning:
-                    Return();
+                case RestorePhase.ManualWaiting:
+                    WaitForManualZone();
                     break;
                 case RestorePhase.Landing:
                     Land();
@@ -184,12 +206,13 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 AddWarning($"Partial export: restoring {_session.Archive.Manifest.Zones.Count}/{_session.Archive.PlannedZoneCount} zones; uncaptured zones will be skipped.");
             }
-            _objects = new ObjectRestorer(_session.Journal.State.Fingerprint, _session.Journal.State, AddWarning);
-            _scan = _session.Archive.Records.GetEnumerator();
+            _objects = new ObjectRestorer(_session.Journal.State.Fingerprint, _session.Journal.State,
+                _session.Archive.Cleanup, AddWarning);
+            SelectRecords();
             _phase = RestorePhase.Preflight;
         }
 
-        // Rejects missing assets and repairs stale progress after a rolled-back native world save.
+        // Validates selected pending records without reopening already completed zones.
         private void Preflight()
         {
             if (!_objects.IndexIdentities())
@@ -213,10 +236,7 @@ namespace Landoria.WorldCrawler.Restoration
                     continue;
                 }
                 ObjectRestorer.Validate(record);
-                if (_objects.Resolve(record) == null && _session.Journal.State.Completed.Remove(ZoneKey(record.ZoneX, record.ZoneZ)))
-                {
-                    AddWarning(RestoreWarnings.Describe(record) + "; a completed zone has a missing or mismatched target; queued for restoration again.");
-                }
+                _objects.Resolve(record);
             }
         }
 
@@ -244,7 +264,7 @@ namespace Landoria.WorldCrawler.Restoration
         // Stops and preserves unfinished work instead of claiming a partial zone was committed.
         private void Fail(Exception error)
         {
-            _log.LogError("Restoration stopped in phase=" + _phase +
+            _log.LogError(Operation + " stopped in phase=" + _phase +
                 (_zone == null ? "" : "; zone=" + ZoneKey(_zone.X, _zone.Z)) + ". " + error);
             _phase = RestorePhase.Stopped;
             try
@@ -259,7 +279,7 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 Close();
             }
-            Say("Restoration interrupted: " + error.Message);
+            Say(Operation + " interrupted: " + error.Message);
         }
 
         // Releases locks only after outstanding file reads and backups have finished.

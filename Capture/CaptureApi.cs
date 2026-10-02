@@ -14,6 +14,12 @@ namespace Landoria.WorldCrawler.Capture
         private readonly FieldInfo _zones;
         private readonly FieldInfo _zoneRoot;
         private readonly FieldInfo _proxyInstance;
+        private readonly FieldInfo _locationInstances;
+        private readonly FieldInfo[] _locationCaches;
+        private readonly FieldInfo _locationPosition;
+        private readonly FieldInfo _locationDefinition;
+        private readonly FieldInfo _zoneX;
+        private readonly FieldInfo _zoneY;
         private readonly bool _legacy;
         private readonly object _distance;
         private readonly Dictionary<int, string> _locationNames = new Dictionary<int, string>();
@@ -28,11 +34,20 @@ namespace Landoria.WorldCrawler.Capture
                 throw new MissingMethodException("ZoneSystem.GetZone(Vector3) is unavailable.");
             }
             var coordinateType = _getZone.ReturnType;
+            _zoneX = RequiredField(coordinateType, "x");
+            _zoneY = RequiredField(coordinateType, "y");
             _legacy = coordinateType.Name == "Vector2i";
             _findObjects = ResolveFindObjects(coordinateType, out _distance);
             _zones = RequiredField(typeof(ZoneSystem), "m_zones");
             _zoneRoot = RequiredField(_zones.FieldType.GetGenericArguments()[1], "m_root");
             _proxyInstance = RequiredField(typeof(LocationProxy), "m_instance");
+            _locationInstances = RequiredField(typeof(ZoneSystem), "m_locationInstances");
+            var locationType = _locationInstances.FieldType.GetGenericArguments()[1];
+            _locationPosition = RequiredField(locationType, "m_position");
+            _locationDefinition = RequiredField(locationType, "m_location");
+            _locationCaches = new[] { RequiredField(typeof(ZoneSystem), "m_locationIDCache"),
+                RequiredField(typeof(ZoneSystem), "m_locationGroupCache"),
+                RequiredField(typeof(ZoneSystem), "m_locationMaxGroupCache") };
             if (!typeof(IDictionary).IsAssignableFrom(_zones.FieldType)
                 || _zoneRoot.FieldType != typeof(GameObject) || _proxyInstance.FieldType != typeof(GameObject))
             {
@@ -64,6 +79,56 @@ namespace Landoria.WorldCrawler.Capture
         internal GameObject GetLocationInstance(LocationProxy proxy)
         {
             return _proxyInstance.GetValue(proxy) as GameObject;
+        }
+
+        // Converts one world position to version-independent integer sector coordinates.
+        internal void GetZone(Vector3 position, out int x, out int z)
+        {
+            var zone = _getZone.Invoke(null, new object[] { position });
+            x = Convert.ToInt32(_zoneX.GetValue(zone));
+            z = Convert.ToInt32(_zoneY.GetValue(zone));
+        }
+
+        // Removes one generated location from the native registry and its lookup caches.
+        internal bool RemoveLocationRegistration(Vector3 center, int expectedHash)
+        {
+            var locations = (IDictionary)_locationInstances.GetValue(ZoneSystem.instance);
+            var zone = _getZone.Invoke(null, new object[] { center });
+            var location = locations[zone];
+            if (location == null)
+            {
+                return false;
+            }
+            var definition = (ZoneSystem.ZoneLocation)_locationDefinition.GetValue(location);
+            if (Vector3.Distance((Vector3)_locationPosition.GetValue(location), center) > 0.1f ||
+                definition == null || definition.m_prefabName.GetStableHashCode() != expectedHash)
+            {
+                return false;
+            }
+            locations.Remove(zone);
+            foreach (var cacheField in _locationCaches)
+            {
+                RemoveCachedLocation((IDictionary)cacheField.GetValue(ZoneSystem.instance), location);
+            }
+            return true;
+        }
+
+        // Removes the matching boxed location value from every list in one native cache.
+        private void RemoveCachedLocation(IDictionary cache, object location)
+        {
+            var expected = (Vector3)_locationPosition.GetValue(location);
+            foreach (DictionaryEntry entry in cache)
+            {
+                var values = (IList)entry.Value;
+                for (var index = values.Count - 1; index >= 0; index--)
+                {
+                    var position = (Vector3)_locationPosition.GetValue(values[index]);
+                    if (Vector3.Distance(position, expected) < 0.1f)
+                    {
+                        values.RemoveAt(index);
+                    }
+                }
+            }
         }
 
         // Resolves a location hash through the local catalogue without generating any location.

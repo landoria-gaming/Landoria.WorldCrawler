@@ -16,10 +16,6 @@ namespace Landoria.WorldCrawler.Flight
         private Vector3 expectedPosition;
         private float nextAudit;
         private float minimumHealth;
-        private bool restoreOriginalMotion;
-        private Vector3 transitFrom;
-        private Vector3 transitExit;
-        private float transitStarted;
         public Vector3 Origin
         {
             get; private set;
@@ -41,20 +37,6 @@ namespace Landoria.WorldCrawler.Flight
         {
             get; private set;
         }
-        public bool EmergencyReturnRequested
-        {
-            get; private set;
-        }
-        public bool NativeTransitActive
-        {
-            get; private set;
-        }
-        public bool NativeTransitSucceeded
-        {
-            get; private set;
-        }
-        public bool CanEndAtOrigin => Active && player != null &&
-            Vector3.Distance(player.transform.position, Origin) <= 0.25f;
 
         // Starts only from a stable, living local player in a supported game version.
         public void Begin(Player value, Vector3? returnOrigin = null, Quaternion? returnRotation = null)
@@ -78,11 +60,9 @@ namespace Landoria.WorldCrawler.Flight
             {
                 throw new ArgumentException("The recorded return origin is invalid.");
             }
-            restoreOriginalMotion = !returnOrigin.HasValue;
             expectedPosition = player.transform.position;
             nextAudit = 0f;
-            minimumHealth = Mathf.Max(10f, player.GetHealth() * 0.5f);
-            EmergencyReturnRequested = false;
+            minimumHealth = 0f;
             Acquire();
         }
 
@@ -97,7 +77,7 @@ namespace Landoria.WorldCrawler.Flight
             }
             if (Time.unscaledTime >= nextAudit)
             {
-                achievements.Validate();
+                achievements.Validate(Manual);
                 nextAudit = Time.unscaledTime + 1f;
             }
             float step = Mathf.Clamp(Speed, 1f, 100f) * Mathf.Clamp(deltaTime, 0f, 0.1f);
@@ -106,84 +86,21 @@ namespace Landoria.WorldCrawler.Flight
             return Vector3.Distance(expectedPosition, target) <= 0.05f;
         }
 
-        // Restores the saved pose and movement state after a controlled return to the origin.
+        // Releases flight at the current position without moving or teleporting to its origin.
         public void End()
         {
             ValidateActive();
-            if (!CanEndAtOrigin)
-            {
-                throw new InvalidOperationException("Return to the saved origin before ending flight.");
-            }
-            achievements.Validate();
-            physics.Move(Origin, OriginRotation);
-            Release(true);
+            achievements.Validate(Manual);
+            Release(false);
         }
 
-        // Raises the return position when imported terrain or a restored building covers its old height.
-        public bool RaiseReturnHeight(float height)
-        {
-            ValidateActive();
-            if (float.IsNaN(height) || float.IsInfinity(height))
-            {
-                throw new ArgumentException("Invalid return height.");
-            }
-            if (height <= Origin.y)
-            {
-                return false;
-            }
-            Origin = new Vector3(Origin.x, height, Origin.z);
-            restoreOriginalMotion = false;
-            return true;
-        }
-
-        // Requests native emergency return only for the original living, connected player.
+        // Releases owned physics in place, including failures and plugin unloads.
         public void Abort()
         {
-            if (!Active)
+            if (Active)
             {
-                return;
+                Release(false);
             }
-            if (NativeTransitActive && CanOwnTransitRecovery())
-            {
-                AbortNativeTransit();
-                return;
-            }
-            try
-            {
-                if (CanEndAtOrigin && CanRequestEmergencyReturn())
-                {
-                    Release(true);
-                    return;
-                }
-                if (CanRequestEmergencyReturn())
-                {
-                    EmergencyReturnRequested = player.TeleportTo(Origin, OriginRotation, true);
-                }
-            }
-            finally
-            {
-                if (Active)
-                {
-                    Release(false);
-                }
-            }
-        }
-
-        // Prevents a late airborne arrival after timeout, including the native-completion cooldown frame.
-        private void AbortNativeTransit()
-        {
-            try
-            {
-                EmergencyReturnRequested = NativeTransitRecovery.Return(player, transitExit, Origin, OriginRotation);
-            }
-            catch (Exception error)
-            {
-                expectedPosition = player.transform.position;
-                physics.Activate();
-                throw new InvalidOperationException("Native transit recovery failed; flight protection remains active. " +
-                    "Leave the world and reconnect before resuming from the saved return checkpoint.", error);
-            }
-            Release(false);
         }
 
         // Limits private recovery to this exact living local owner in its original connected world.
@@ -222,7 +139,7 @@ namespace Landoria.WorldCrawler.Flight
         // Suppresses native repositioning only while this connected local body is under flight control.
         internal static bool OwnsFlightMotion(Character character)
         {
-            return IsControlled(character) && !current.NativeTransitActive &&
+            return IsControlled(character) && !current._manualTeleport &&
                 current.CanOwnTransitRecovery() && !current.player.IsTeleporting() &&
                 !current.player.IsAttached() && !current.player.InCutscene();
         }
@@ -244,7 +161,7 @@ namespace Landoria.WorldCrawler.Flight
         }
 
         // Stops on a new world, lost ownership, death, teleport, or external position correction.
-        private void ValidateActive(bool nativeTransit = false)
+        private void ValidateActive()
         {
             if (!Active || player == null || player != Player.m_localPlayer || player.IsDead())
             {
@@ -255,13 +172,13 @@ namespace Landoria.WorldCrawler.Flight
             {
                 throw new InvalidOperationException("The connected world changed or disconnected.");
             }
-            if (nativeTransit != NativeTransitActive || view == null || !view.IsValid() || !view.IsOwner() ||
-                (!nativeTransit && player.IsTeleporting()) ||
+            if (view == null || !view.IsValid() || !view.IsOwner() ||
+                player.IsTeleporting() ||
                 player.IsAttached() || player.InCutscene())
             {
                 throw new InvalidOperationException("The player's network or movement state changed.");
             }
-            if (!nativeTransit && Vector3.Distance(player.transform.position, expectedPosition) > 3f)
+            if (Vector3.Distance(player.transform.position, expectedPosition) > 3f)
             {
                 throw new InvalidOperationException(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "The player was moved outside crawler control; flight stopped. Expected={0}; actual={1}; delta={2:F2}m.",
@@ -270,7 +187,7 @@ namespace Landoria.WorldCrawler.Flight
             }
             if (player.GetHealth() <= minimumHealth)
             {
-                throw new InvalidOperationException("Health fell below the flight safety threshold; return requested.");
+                throw new InvalidOperationException("Health fell below the flight safety threshold; flight stopped.");
             }
         }
 
@@ -284,15 +201,49 @@ namespace Landoria.WorldCrawler.Flight
                 throw new InvalidOperationException("Join a world before starting the crawl.");
             }
             ZNetView localView = value.GetComponent<ZNetView>();
-            if (localView == null || !localView.IsValid() || !localView.IsOwner() || value.IsDead() ||
-                value.GetHealth() <= 10f ||
-                value.IsTeleporting() || value.InCutscene() || value.IsAttached() || value.InBed() ||
-                value.InAttack() || value.InDodge() || value.InEmote() || value.m_autoRun ||
-                value.IsSwimming() || (!recovering && !value.IsOnGround()) || value.InDebugFlyMode() ||
-                value.GetStandingOnShip() != null || (!recovering && value.GetVelocity().sqrMagnitude > 1f))
+            string blocker = FindStartBlocker(value, localView, recovering);
+            if (blocker != null)
             {
-                throw new InvalidOperationException("Stand still on solid ground, outside combat or attachments.");
+                throw new InvalidOperationException("Cannot start controlled flight: " + blocker + ".");
             }
+        }
+
+        // Returns the exact unsafe state that prevents controlled flight from starting.
+        private static string FindStartBlocker(Player value, ZNetView localView, bool recovering)
+        {
+            if (localView == null || !localView.IsValid() || !localView.IsOwner())
+            {
+                return "the local player does not own its network object";
+            }
+            if (value.IsDead() || value.GetHealth() <= 0f)
+            {
+                return "the player is dead";
+            }
+            if (value.IsTeleporting() || value.InCutscene())
+            {
+                return "a teleport or cutscene is active";
+            }
+            if (value.IsAttached() || value.InBed() || value.GetStandingOnShip() != null)
+            {
+                return "the player is attached, in bed, or on a ship";
+            }
+            if (value.InAttack() || value.InDodge() || value.InEmote())
+            {
+                return "an attack, dodge, or emote is active";
+            }
+            if (value.IsSwimming() || value.InDebugFlyMode())
+            {
+                return "swimming or Valheim debug flight is active";
+            }
+            if (value.m_autoRun)
+            {
+                return "auto-run is active";
+            }
+            if (!recovering && (!value.IsOnGround() || value.GetVelocity().sqrMagnitude > 1f))
+            {
+                return "the player is airborne or still moving";
+            }
+            return null;
         }
 
         // Always clears the controlled-player marker even if Unity rejects state restoration.
@@ -300,12 +251,11 @@ namespace Landoria.WorldCrawler.Flight
         {
             try
             {
-                physics.Restore(atOrigin && restoreOriginalMotion);
+                physics.Restore(false);
             }
             finally
             {
                 Active = false;
-                NativeTransitActive = false;
                 if (current == this)
                 {
                     current = null;
@@ -315,16 +265,6 @@ namespace Landoria.WorldCrawler.Flight
                 network = null;
                 physics = null;
             }
-        }
-
-        // Refuses return after death, logout, ownership loss, world change, or another teleport.
-        private bool CanRequestEmergencyReturn()
-        {
-            return player != null && player == Player.m_localPlayer && !player.IsDead() &&
-                network != null && network == ZNet.instance && network.GetWorldUID() == worldUid &&
-                ZNet.GetConnectionStatus() == ZNet.ConnectionStatus.Connected && view != null &&
-                view.IsValid() && view.IsOwner() && !player.IsTeleporting() && !player.InCutscene() &&
-                !player.IsAttached();
         }
 
         // Clears input before control is acquired without changing progression or debug settings.

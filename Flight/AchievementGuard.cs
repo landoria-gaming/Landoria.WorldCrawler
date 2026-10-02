@@ -43,7 +43,7 @@ namespace Landoria.WorldCrawler.Flight
                 "CanGetAchievements", new[] { typeof(bool) }, false);
             Summary = achievements == null ? "Legacy game: no achievement API; cheat flags monitored." :
                 "Achievement eligibility at start: " + Eligible + "; modded session: " +
-                baseline["modded"] + ". Eligibility is never bypassed or reset.";
+                baseline["modded"] + ". No achievements are granted; other eligibility checks remain active.";
         }
 
         // Rejects unsupported branches before validating the selected runtime's achievement APIs.
@@ -60,11 +60,15 @@ namespace Landoria.WorldCrawler.Flight
         }
 
         // Fails when a profile, world, item, or mode flag differs from the initial state.
-        public void Validate()
+        public void Validate(bool manual = false)
         {
             if (Game.instance == null || !ReferenceEquals(profile, Game.instance.GetPlayerProfile()))
             {
                 throw new InvalidOperationException("The player profile changed during the crawl.");
+            }
+            if (manual)
+            {
+                return;
             }
             Dictionary<string, bool> current = ReadFlags();
             foreach (KeyValuePair<string, bool> flag in baseline)

@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Landoria.WorldCrawler.Restoration
 {
-    // Restores and verifies one loaded sector over multiple frames without deleting absent objects.
+    // Restores one loaded sector and reconciles known generated objects against complete captures.
     internal sealed class ZoneRestorer
     {
         private readonly ObjectRestorer _objects;
@@ -20,7 +20,7 @@ namespace Landoria.WorldCrawler.Restoration
         private readonly float _started;
         private int _index;
         private int _verify;
-        private bool _naturalCleanup;
+        private bool _locationCleanup;
         private float _readySince;
         private readonly HashSet<string> _layouts = new HashSet<string>();
         public bool Done
@@ -62,13 +62,14 @@ namespace Landoria.WorldCrawler.Restoration
             while (_index < _records.Count && budget-- > 0 && watch.ElapsedMilliseconds < 4)
             {
                 _objects.Restore(_records[_index], _version);
+                Landoria.WorldCrawler.Flight.ReceiveMotionGate.Worked();
                 _index++;
             }
             if (_index != _records.Count)
             {
                 return;
             }
-            ReconcileNaturalResources();
+            ReconcileGeneratedLocations();
             if (!ReadyForVerification())
             {
                 return;
@@ -84,21 +85,23 @@ namespace Landoria.WorldCrawler.Restoration
             Done = _verify == _records.Count;
         }
 
-        // Reconciles natural resources once after all source objects have been claimed.
-        private void ReconcileNaturalResources()
+        // Removes native generated locations that were absent from the fully observed source sector.
+        private void ReconcileGeneratedLocations()
         {
-            if (!_naturalCleanup)
+            if (_locationCleanup)
             {
-                var removed = _objects.RemoveAbsentNaturalResources(_snapshot.NaturalAbsenceComplete);
-                if (removed > 0)
-                {
-                    var warning = "Removed " + removed + " absent generated natural resources from "
-                        + _snapshot.ZoneX + ":" + _snapshot.ZoneZ + ".";
-                    _warning(warning);
-                }
-                _naturalCleanup = true;
+                return;
             }
+            var removed = _objects.CleanupZone(_snapshot.ZoneX, _snapshot.ZoneZ);
+            if (removed > 0)
+            {
+                Landoria.WorldCrawler.Flight.ReceiveMotionGate.Worked();
+                _warning("Removed " + removed + " absent known generated objects in " +
+                    _snapshot.ZoneX + ":" + _snapshot.ZoneZ + ".");
+            }
+            _locationCleanup = true;
         }
+
 
         // Waits for native scene and terrain stabilization before validating restored views.
         private bool ReadyForVerification()
