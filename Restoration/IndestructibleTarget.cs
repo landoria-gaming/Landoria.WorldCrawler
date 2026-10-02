@@ -139,10 +139,16 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 throw new InvalidOperationException("This type is present in the export and cannot be deleted with this command.");
             }
-            if (_locationHash != 0 && (_data.GetInt("location", 0) != _locationHash ||
-                !api.RemoveLocationRegistration(Position, _locationHash)))
+            var liveHash = _data.GetInt("location", 0);
+            if (_locationHash != 0 && liveHash != _locationHash)
             {
-                throw new InvalidOperationException("The location registry no longer matches this entry. Nothing was deleted.");
+                throw new InvalidOperationException("The live location hash changed from " + _locationHash + " to " + liveHash +
+                    ". Nothing was deleted; run indestructible list again.");
+            }
+            string rejection;
+            if (_locationHash != 0 && !api.RemoveLocationRegistration(Position, _locationHash, out rejection))
+            {
+                throw new InvalidOperationException(rejection + " Nothing was deleted.");
             }
             DeleteHierarchy();
             Removed = true;

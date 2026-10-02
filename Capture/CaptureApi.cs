@@ -88,6 +88,14 @@ namespace Landoria.WorldCrawler.Capture
         // Removes the same generated location type from its native sector registry and lookup caches.
         internal bool RemoveLocationRegistration(Vector3 center, int expectedHash)
         {
+            string ignored;
+            return RemoveLocationRegistration(center, expectedHash, out ignored);
+        }
+
+        // Reports the exact native-registry mismatch to destructive callers that need diagnostics.
+        internal bool RemoveLocationRegistration(Vector3 center, int expectedHash, out string rejection)
+        {
+            rejection = null;
             if (_legacy)
             {
                 throw new NotSupportedException("Location restoration requires Valheim 1.0.x.");
@@ -101,8 +109,17 @@ namespace Landoria.WorldCrawler.Capture
                 return true;
             }
             var definition = (ZoneSystem.ZoneLocation)_locationDefinition.GetValue(location);
-            if (definition == null || definition.m_prefabName.GetStableHashCode() != expectedHash)
+            if (definition == null)
             {
+                rejection = "The native location registry contains an entry with no definition in sector " + ZoneText(zone) + ".";
+                return false;
+            }
+            var actualHash = definition.m_prefabName.GetStableHashCode();
+            if (actualHash != expectedHash)
+            {
+                rejection = "Native location mismatch in sector " + ZoneText(zone) + ": expected hash " + expectedHash +
+                    ", registered " + definition.m_prefabName + " (hash " + actualHash + ") at " +
+                    ((Vector3)_locationPosition.GetValue(location)).ToString("F1") + ".";
                 return false;
             }
             locations.Remove(zone);
@@ -111,6 +128,12 @@ namespace Landoria.WorldCrawler.Capture
                 RemoveCachedLocation((IDictionary)cacheField.GetValue(ZoneSystem.instance), location);
             }
             return true;
+        }
+
+        // Formats reflected zone coordinates for actionable diagnostics.
+        private string ZoneText(object zone)
+        {
+            return Convert.ToInt32(_zoneX.GetValue(zone)) + ":" + Convert.ToInt32(_zoneY.GetValue(zone));
         }
 
         // Resolves current-only cleanup fields before mutation, never during shared export startup.
