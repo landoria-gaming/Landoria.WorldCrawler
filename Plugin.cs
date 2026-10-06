@@ -26,6 +26,7 @@ namespace Landoria.WorldCrawler
         private ExportMapOverlay _mapOverlay;
         private RecordingHud _recordingHud;
         private IndestructibleCommand _indestructible;
+        private TerrainSeamCommand _terrainSeam;
         private ConfigEntry<bool> _enableCheats;
         private readonly LocalDaylight _daylight = new LocalDaylight();
 
@@ -43,6 +44,8 @@ namespace Landoria.WorldCrawler
             _preparation = new WorldPreparationController(Logger);
             _restoration = new RestorationController(Logger);
             _indestructible = new IndestructibleCommand(Logger, () => _controller.Busy || _preparation.Busy, _restoration);
+            _terrainSeam = new TerrainSeamCommand(Logger,
+                () => _controller.Busy || _preparation.Busy || _restoration.Busy);
             _restoration.SceneryDeletionsPending = _indestructible.DeletionsPending;
             _mapOverlay = new ExportMapOverlay(Logger, _controller, _restoration);
             _recordingHud = new RecordingHud(Logger);

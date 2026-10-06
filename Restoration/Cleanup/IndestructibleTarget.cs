@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Landoria.WorldCrawler.Capture;
 using Landoria.WorldCrawler.Restoration.Objects;
@@ -13,8 +14,11 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
         private readonly ZDO _data;
         private readonly GameObject _root;
         private readonly int _locationHash;
+        private readonly string _locationName;
+        private readonly Vegvisir _attachedMarker;
+        private readonly bool _attached;
         internal string Name { get; }
-        internal Vector3 Position { get; }
+        internal Vector3 Position { get; private set; }
         internal bool Removed { get; private set; }
         internal ZDOID Id => _data.m_uid;
 
@@ -22,42 +26,134 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
         internal float Distance(Vector3 position) => Vector3.Distance(Position, position);
 
         // Retains exact live references so list numbers cannot select a different object later.
-        private IndestructibleTarget(ZNetView view, ZDO data, GameObject root, string name, int locationHash)
+        private IndestructibleTarget(ZNetView view, ZDO data, GameObject root, string name, int locationHash,
+            Vegvisir attachedMarker = null)
         {
             _view = view;
             _data = data;
             _root = root;
-            Name = name;
-            Position = data.GetPosition();
+            Name = attachedMarker == null ? name : "Vegvisir_GDKing (" + name + ")";
+            Position = attachedMarker == null ? data.GetPosition() : attachedMarker.transform.position;
             _locationHash = locationHash;
+            _locationName = name;
+            _attachedMarker = attachedMarker;
+            _attached = attachedMarker != null;
         }
 
         // Lists only loaded, generated decorations with a durable identity and solid static geometry.
-        internal static IndestructibleTarget Read(ZNetView view, CaptureApi api, CleanupSourceIndex source,
+        internal static IEnumerable<IndestructibleTarget> ReadAll(ZNetView view, CaptureApi api, CleanupSourceIndex source,
             Vector3 center, float radius)
         {
             var data = view.GetZDO();
-            if (!Generated(data) || Vector3.Distance(center, data.GetPosition()) > radius)
+            if (!Generated(data))
             {
-                return null;
+                yield break;
             }
             var proxy = view.GetComponent<LocationProxy>();
             var hash = proxy == null ? 0 : data.GetInt("location", 0);
             var root = proxy == null ? view.gameObject : api.GetLocationInstance(proxy);
             if (root == null || proxy != null && hash == 0)
             {
-                return null;
+                yield break;
             }
             var name = proxy == null ? Utils.GetPrefabName(view.gameObject) : api.GetLocationName(hash);
-            return !Importable(data, source, hash, name) && Safe(root, view, name) ?
-                new IndestructibleTarget(view, data, root, name, hash) : null;
+            if (proxy != null && !AttachedSource(data, source, hash, name))
+            {
+                foreach (var marker in AttachedVegvisirPlacement.FindAll(view.gameObject))
+                {
+                    if (Vector3.Distance(center, marker.transform.position) <= radius)
+                    {
+                        yield return new IndestructibleTarget(view, data, root, name, hash, marker);
+                    }
+                }
+            }
+            if (Vector3.Distance(center, data.GetPosition()) > radius)
+            {
+                yield break;
+            }
+            if (!Importable(data, source, hash, name) && Safe(root, view, name))
+            {
+                yield return new IndestructibleTarget(view, data, root, name, hash);
+            }
+        }
+
+        // Explains why a visible Vegvisir was excluded from the numbered list.
+        internal static string ExplainVegvisir(Vegvisir marker, CaptureApi api, CleanupSourceIndex source)
+        {
+            var view = marker.GetComponentInParent<ZNetView>();
+            if (view == null)
+            {
+                return "no independent persistent network view (part of a generated site)";
+            }
+            var data = view.GetZDO();
+            if (data == null || !data.IsValid())
+            {
+                return "network record is not loaded";
+            }
+            if (!Generated(data))
+            {
+                return "protected, imported or player-created record";
+            }
+            var proxy = view.GetComponent<LocationProxy>();
+            var hash = proxy == null ? 0 : data.GetInt("location", 0);
+            var root = proxy == null ? view.gameObject : api.GetLocationInstance(proxy);
+            if (root == null)
+            {
+                return "generated site hierarchy is not loaded";
+            }
+            var name = proxy == null ? Utils.GetPrefabName(view.gameObject) : api.GetLocationName(hash);
+            if (proxy != null && AttachedSource(data, source, hash, name))
+            {
+                return "this exact generated site is present in the source export and protected";
+            }
+            if (proxy == null && Importable(data, source, hash, name))
+            {
+                return "present in the source export and protected";
+            }
+            if (proxy != null)
+            {
+                return AttachedVegvisirPlacement.FindAll(view.gameObject).Contains(marker) ?
+                    "eligible attached Vegvisir; check loaded proxy discovery" :
+                    "attached Vegvisir failed its own safety check (" + marker.gameObject.name + ")";
+            }
+            if (Safe(root, view, name))
+            {
+                return "eligible view; check its center distance";
+            }
+            var blocked = root.GetComponentsInChildren<MonoBehaviour>(true)
+                .Where(script => Functional(script) && !(script is Vegvisir))
+                .Select(script => script == null ? "missing script" : script.GetType().Name)
+                .Distinct().ToArray();
+            return "prefab " + name + ", location " + hash + ", root " + root.name +
+                ", blocked components: " + (blocked.Length == 0 ? "none" : string.Join(", ", blocked));
         }
 
         // Protects all globally exported types, even when this particular object has not been imported yet.
         private static bool Importable(ZDO data, CleanupSourceIndex source, int hash, string name)
         {
             var prefab = ZNetScene.instance.GetPrefab(data.GetPrefab());
-            return source == null || prefab == null || source.Known(data.GetPrefab(), prefab.name, hash, name);
+            if (source == null || prefab == null)
+            {
+                return true;
+            }
+            if (hash == 0 && prefab.name == "Vegvisir_GDKing")
+            {
+                var position = data.GetPosition();
+                return source.Present(data.GetPrefab(), prefab.name, position.x, position.y, position.z, 0);
+            }
+            return source.Known(data.GetPrefab(), prefab.name, hash, name);
+        }
+
+        // Protects the exact source location while allowing extra sites of the same prefab elsewhere.
+        private static bool AttachedSource(ZDO data, CleanupSourceIndex source, int hash, string name)
+        {
+            var prefab = ZNetScene.instance.GetPrefab(data.GetPrefab());
+            if (source == null || prefab == null || hash == 0 || string.IsNullOrEmpty(name))
+            {
+                return true;
+            }
+            var position = data.GetPosition();
+            return source.Present(data.GetPrefab(), prefab.name, position.x, position.y, position.z, hash);
         }
 
         // Never offers player-created objects, imported source objects, or invalid records.
@@ -84,6 +180,11 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
                 return false;
             }
             var scripts = root.GetComponentsInChildren<MonoBehaviour>(true);
+            var elderVegvisir = name == "Vegvisir_GDKing";
+            if (elderVegvisir && root == view.gameObject && root.GetComponentInChildren<Vegvisir>(true) != null)
+            {
+                return !scripts.Any(script => Functional(script) && !(script is Vegvisir));
+            }
             if (scripts.Any(Functional))
             {
                 return false;
@@ -130,15 +231,10 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
         // Removes only the previously listed object after rechecking its identity and live hierarchy.
         internal string Delete(CaptureApi api, CleanupSourceIndex source, Vector3 player, float radius)
         {
-            if (Removed || _view == null || _root == null || _view.GetZDO() != _data || !Generated(_data) ||
-                Distance(player) > radius || Vector3.Distance(Position, _data.GetPosition()) > 0.1f ||
-                !Safe(_root, _view, Name))
+            Validate(source, player, radius);
+            if (_attached)
             {
-                throw new InvalidOperationException("This entry is gone, too far away, or no longer safe. Run indestructible list again.");
-            }
-            if (Importable(_data, source, _locationHash, Name))
-            {
-                throw new InvalidOperationException("This type is present in the export and cannot be deleted with this command.");
+                throw new InvalidOperationException("This Vegvisir belongs to a generated site. Use move, not delete.");
             }
             var liveHash = _data.GetInt("location", 0);
             if (_locationHash != 0 && liveHash != _locationHash)
@@ -154,6 +250,95 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
             DeleteHierarchy();
             Removed = true;
             return rejection;
+        }
+
+        // Rechecks a listed object before either world mutation.
+        private void Validate(CleanupSourceIndex source, Vector3 player, float radius)
+        {
+            if (Removed || _view == null || _root == null || _attached && _attachedMarker == null ||
+                _view.GetZDO() != _data || !Generated(_data))
+            {
+                throw new InvalidOperationException("This entry changed or is no longer loaded. Run indestructible list again.");
+            }
+            var livePosition = _attached ? _attachedMarker.transform.position : _data.GetPosition();
+            var safe = _attached ? AttachedVegvisirPlacement.FindAll(_view.gameObject).Contains(_attachedMarker) :
+                Safe(_root, _view, Name);
+            if (Distance(player) > radius || Vector3.Distance(Position, livePosition) > 0.1f || !safe)
+            {
+                throw new InvalidOperationException("This entry changed or is too far away. Run indestructible list again.");
+            }
+            if (_attached ? AttachedSource(_data, source, _locationHash, _locationName) :
+                Importable(_data, source, _locationHash, _locationName))
+            {
+                throw new InvalidOperationException("This object is present in the export and cannot be changed.");
+            }
+        }
+
+        // Relocates a standalone persistent decoration after finding a free, grounded destination.
+        internal Vector3 Move(CleanupSourceIndex source, Vector3 player, float radius)
+        {
+            Validate(source, player, radius);
+            if (_attached)
+            {
+                return MoveAttached();
+            }
+            if (_locationHash != 0 || _root != _view.gameObject)
+            {
+                throw new InvalidOperationException("This monument is a generated site. Moving its location registry is unsupported; use delete instead.");
+            }
+            var destination = IndestructibleMover.Find(_root, Position);
+            _data.SetOwner(ZDOMan.GetSessionID());
+            _data.Set(IndestructibleMover.Marker, true);
+            _data.SetPosition(destination);
+            _root.transform.position = destination;
+            Position = destination;
+            return destination;
+        }
+
+        // Saves a site child's new world position on its persistent proxy record.
+        private Vector3 MoveAttached()
+        {
+            var destination = IndestructibleMover.Find(_attachedMarker.gameObject, Position);
+            var key = AttachedKey();
+            _data.SetOwner(ZDOMan.GetSessionID());
+            _data.Set(IndestructibleMover.Marker, true);
+            _data.Set(key, destination);
+            _attachedMarker.transform.position = destination;
+            Position = destination;
+            return destination;
+        }
+
+        // Places any listed decoration on terrain at its current horizontal position.
+        internal Vector3 Ground(CleanupSourceIndex source, Vector3 player, float radius)
+        {
+            Validate(source, player, radius);
+            var root = _attached ? _attachedMarker.gameObject : _root;
+            if (!_attached && (_locationHash != 0 || _root != _view.gameObject))
+            {
+                throw new InvalidOperationException("Only standalone decorations and attached Elder Vegvisirs can be grounded.");
+            }
+            var destination = IndestructibleMover.Ground(root, Position);
+            var key = _attached ? AttachedKey() : null;
+            _data.SetOwner(ZDOMan.GetSessionID());
+            _data.Set(IndestructibleMover.Marker, true);
+            if (!_attached)
+            {
+                _data.SetPosition(destination);
+            }
+            else
+            {
+                _data.Set(key, destination);
+            }
+            root.transform.position = destination;
+            Position = destination;
+            return destination;
+        }
+
+        // Rechecks the durable child path before writing a location override.
+        private string AttachedKey()
+        {
+            return AttachedVegvisirPlacement.PositionKeyFor(_view.gameObject, _attachedMarker)
+                ?? throw new InvalidOperationException("The Vegvisir is no longer inside the listed location.");
         }
 
         // Deletes every durable member of a known generated site before removing its proxy.

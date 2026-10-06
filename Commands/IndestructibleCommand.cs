@@ -12,7 +12,7 @@ using UnityEngine;
 
 namespace Landoria.WorldCrawler.Commands
 {
-    // Lists nearby generated indestructible scenery and deletes only an explicitly selected entry.
+    // Lists nearby generated indestructible scenery and changes only an explicitly selected entry.
     internal sealed class IndestructibleCommand : IDisposable
     {
         private readonly ManualLogSource _log;
@@ -40,7 +40,7 @@ namespace Landoria.WorldCrawler.Commands
             });
             var arguments = constructor.GetParameters().Select(parameter => parameter.DefaultValue).ToArray();
             arguments[0] = "indestructible";
-            arguments[1] = "list [radius=30] | delete <number> - Manage nearby generated indestructible scenery in a local world.";
+            arguments[1] = "list [radius=30] | delete <number> | move <number> | ground <number> - Manage scenery.";
             arguments[2] = new Terminal.ConsoleEvent(Execute);
             constructor.Invoke(arguments);
         }
@@ -59,9 +59,17 @@ namespace Landoria.WorldCrawler.Commands
                 {
                     WithSource(source => Delete(args, source));
                 }
+                else if (args.Length == 3 && args[1] == "move")
+                {
+                    WithSource(source => Move(args, source));
+                }
+                else if (args.Length == 3 && args[1] == "ground")
+                {
+                    WithSource(source => Ground(args, source));
+                }
                 else
                 {
-                    Reply(args, "Usage: indestructible list [radius=30] or indestructible delete <number>");
+                    Reply(args, "Usage: indestructible list [radius=30] | delete <number> | move <number> | ground <number>");
                 }
             }
             catch (Exception error)
@@ -121,11 +129,11 @@ namespace Landoria.WorldCrawler.Commands
             var center = Player.m_localPlayer.transform.position;
             var api = new CaptureApi();
             var candidates = NearbyViews(api, center)
-                .Select(view => IndestructibleTarget.Read(view, api, source, center, _radius))
-                .Where(target => target != null).OrderBy(target => target.Distance(center)).ToArray();
+                .SelectMany(view => IndestructibleTarget.ReadAll(view, api, source, center, _radius))
+                .OrderBy(target => target.Distance(center)).ToArray();
             _listed.AddRange(candidates);
             _world = ZNet.World;
-            Reply(args, _listed.Count + " removable indestructible decorations within " + _radius + "m (by center):");
+            Reply(args, _listed.Count + " movable or removable indestructible decorations within " + _radius + "m (by center):");
             for (var index = 0; index < _listed.Count; index++)
             {
                 var item = _listed[index];
@@ -134,7 +142,24 @@ namespace Landoria.WorldCrawler.Commands
             }
             if (_listed.Count > 0)
             {
-                Reply(args, "Back up your world first. indestructible delete <number> removes that entire listed decoration only.");
+                Reply(args, "Back up your world first. Use indestructible ground <number> directly, or move/delete <number>.");
+            }
+            else
+            {
+                ExplainNearbyVegvisir(args, api, source, center);
+            }
+        }
+
+        // Gives a concrete exclusion reason when the visible Elder stone was not numbered.
+        private void ExplainNearbyVegvisir(Terminal.ConsoleEventArgs args, CaptureApi api,
+            CleanupSourceIndex source, Vector3 center)
+        {
+            var markers = UnityEngine.Object.FindObjectsByType<Vegvisir>(FindObjectsSortMode.None)
+                .Where(marker => Vector3.Distance(center, marker.transform.position) <= _radius).Take(5).ToArray();
+            foreach (var marker in markers)
+            {
+                Reply(args, "Nearby Vegvisir at " + marker.transform.position.ToString("F1") + ": " +
+                    IndestructibleTarget.ExplainVegvisir(marker, api, source));
             }
         }
 
@@ -159,6 +184,19 @@ namespace Landoria.WorldCrawler.Commands
                             yield return view;
                         }
                     }
+                }
+            }
+            foreach (var marker in UnityEngine.Object.FindObjectsByType<Vegvisir>(FindObjectsSortMode.None))
+            {
+                if (Vector3.Distance(center, marker.transform.position) > _radius)
+                {
+                    continue;
+                }
+                var view = marker.GetComponentInParent<ZNetView>();
+                var data = view == null ? null : view.GetZDO();
+                if (data != null && seen.Add(data.m_uid))
+                {
+                    yield return view;
                 }
             }
         }
@@ -193,6 +231,47 @@ namespace Landoria.WorldCrawler.Commands
             {
                 Reply(args, registryNote);
             }
+        }
+
+        // Moves one listed standalone decoration to a checked open location about 20 metres away.
+        private void Move(Terminal.ConsoleEventArgs args, CleanupSourceIndex source)
+        {
+            if (ZNet.instance.IsSaving())
+            {
+                throw new InvalidOperationException("Wait for the current world save before moving scenery.");
+            }
+            if (!ReferenceEquals(_world, ZNet.World) || !int.TryParse(args[2], NumberStyles.None,
+                CultureInfo.InvariantCulture, out var index) || index < 1 || index > _listed.Count)
+            {
+                throw new ArgumentException("Run indestructible list in this world, then use one of its numbers.");
+            }
+            var selected = _listed[index - 1];
+            var origin = selected.Position;
+            var destination = selected.Move(source, Player.m_localPlayer.transform.position, _radius);
+            _listed.Clear();
+            _restore.SceneryChanged();
+            Reply(args, "Moved " + selected.Name + " from " + origin.ToString("F1") + " to " +
+                destination.ToString("F1") + ". Save the world normally; run indestructible list again for new numbers.");
+        }
+
+        // Grounds a listed decoration in place and saves its adjusted height.
+        private void Ground(Terminal.ConsoleEventArgs args, CleanupSourceIndex source)
+        {
+            if (ZNet.instance.IsSaving())
+            {
+                throw new InvalidOperationException("Wait for the current world save before grounding scenery.");
+            }
+            if (!ReferenceEquals(_world, ZNet.World) || !int.TryParse(args[2], NumberStyles.None,
+                CultureInfo.InvariantCulture, out var index) || index < 1 || index > _listed.Count)
+            {
+                throw new ArgumentException("Run indestructible list in this world, then use one of its numbers.");
+            }
+            var selected = _listed[index - 1];
+            var destination = selected.Ground(source, Player.m_localPlayer.transform.position, _radius);
+            _listed.Clear();
+            _restore.SceneryChanged();
+            Reply(args, "Placed " + selected.Name + " on the ground at " + destination.ToString("F1") +
+                ". Save the world normally; run indestructible list again for new numbers.");
         }
 
         // Lets F10 wait for native destruction before starting a checkpoint, without stopping restoration.

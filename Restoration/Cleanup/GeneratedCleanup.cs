@@ -79,7 +79,7 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
         private bool Eligible(ZDO target, HashSet<ZDOID> claimed)
         {
             if (target == null || !target.IsValid() || !target.Persistent || claimed.Contains(target.m_uid) ||
-                target.GetBool("tamed", false) ||
+                target.GetBool("tamed", false) || target.GetBool(IndestructibleMover.Marker, false) ||
                 RestoreIdentityIndex.SourceKey(target.GetString(ObjectRestorer.IdentityTag, "")) != null)
             {
                 return false;

@@ -54,12 +54,16 @@ Using cheats can make recording and restoration easier, but it is not required.
 
 ## Addtional command
 
-New indestructible decorations may get in the way in the reconstructed world. Use the following commands to remove them:
+New indestructible decorations may get in the way in the reconstructed world. Use these commands to move or remove them:
 
 | Command | Action |
 | --- | --- |
 | `indestructible list` | List nearby stone circles, dolmens and other safe indestructible decorations within **30 m**. |
 | `indestructible delete 2` | Delete entry **2** from the list, including the whole monument when listed as a site. |
+| `indestructible move 2` | Move entry **2** about **20 m** to a loaded, clear and level place. An Elder Vegvisir inside any generated site moves without relocating the rest of the site. |
+| `indestructible ground 2` | Place entry **2** on the terrain at its current horizontal position, before or after any move. |
+| `terrainseam list` | List height mismatches at every restored zone border in the local world. |
+| `terrainseam repair` | List and repair all detected borders, back up the world, then request a native save. |
 
 ## Screenshot
 
