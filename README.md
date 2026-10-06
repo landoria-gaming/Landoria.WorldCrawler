@@ -52,7 +52,7 @@ Using cheats can make recording and restoration easier, but it is not required.
 - **Green** zones are restored; **amber** zones are not restored yet.
 - Press **F10** again to stop restoration and perform the final save.
 
-## Additional commands
+## Post-restoration commands
 
 ### Fix indestructibles
 
