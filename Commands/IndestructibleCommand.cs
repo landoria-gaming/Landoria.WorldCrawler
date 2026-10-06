@@ -186,13 +186,9 @@ namespace Landoria.WorldCrawler.Commands
                     }
                 }
             }
-            foreach (var marker in UnityEngine.Object.FindObjectsByType<Vegvisir>(FindObjectsSortMode.None))
+            foreach (var proxy in UnityEngine.Object.FindObjectsByType<LocationProxy>(FindObjectsSortMode.None))
             {
-                if (Vector3.Distance(center, marker.transform.position) > _radius)
-                {
-                    continue;
-                }
-                var view = marker.GetComponentInParent<ZNetView>();
+                var view = proxy.GetComponent<ZNetView>();
                 var data = view == null ? null : view.GetZDO();
                 if (data != null && seen.Add(data.m_uid))
                 {

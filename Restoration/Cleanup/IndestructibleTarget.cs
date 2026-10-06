@@ -15,7 +15,7 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
         private readonly GameObject _root;
         private readonly int _locationHash;
         private readonly string _locationName;
-        private readonly Vegvisir _attachedMarker;
+        private readonly GameObject _attachedObject;
         private readonly bool _attached;
         internal string Name { get; }
         internal Vector3 Position { get; private set; }
@@ -27,17 +27,17 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
 
         // Retains exact live references so list numbers cannot select a different object later.
         private IndestructibleTarget(ZNetView view, ZDO data, GameObject root, string name, int locationHash,
-            Vegvisir attachedMarker = null)
+            GameObject attachedObject = null)
         {
             _view = view;
             _data = data;
             _root = root;
-            Name = attachedMarker == null ? name : "Vegvisir_GDKing (" + name + ")";
-            Position = attachedMarker == null ? data.GetPosition() : attachedMarker.transform.position;
+            Name = attachedObject == null ? name : Utils.GetPrefabName(attachedObject) + " (" + name + ")";
+            Position = attachedObject == null ? data.GetPosition() : attachedObject.transform.position;
             _locationHash = locationHash;
             _locationName = name;
-            _attachedMarker = attachedMarker;
-            _attached = attachedMarker != null;
+            _attachedObject = attachedObject;
+            _attached = attachedObject != null;
         }
 
         // Lists only loaded, generated decorations with a durable identity and solid static geometry.
@@ -59,11 +59,11 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
             var name = proxy == null ? Utils.GetPrefabName(view.gameObject) : api.GetLocationName(hash);
             if (proxy != null && !AttachedSource(data, source, hash, name))
             {
-                foreach (var marker in AttachedVegvisirPlacement.FindAll(view.gameObject))
+                foreach (var candidate in AttachedDecorationPlacement.FindAll(root))
                 {
-                    if (Vector3.Distance(center, marker.transform.position) <= radius)
+                    if (Vector3.Distance(center, candidate.transform.position) <= radius)
                     {
-                        yield return new IndestructibleTarget(view, data, root, name, hash, marker);
+                        yield return new IndestructibleTarget(view, data, root, name, hash, candidate);
                     }
                 }
             }
@@ -112,8 +112,8 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
             }
             if (proxy != null)
             {
-                return AttachedVegvisirPlacement.FindAll(view.gameObject).Contains(marker) ?
-                    "eligible attached Vegvisir; check loaded proxy discovery" :
+                return AttachedDecorationPlacement.FindAll(root).Contains(marker.gameObject) ?
+                    "eligible attached decoration; check loaded proxy discovery" :
                     "attached Vegvisir failed its own safety check (" + marker.gameObject.name + ")";
             }
             if (Safe(root, view, name))
@@ -234,7 +234,7 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
             Validate(source, player, radius);
             if (_attached)
             {
-                throw new InvalidOperationException("This Vegvisir belongs to a generated site. Use move, not delete.");
+                throw new InvalidOperationException("This decoration belongs to a generated site. Use move, not delete.");
             }
             var liveHash = _data.GetInt("location", 0);
             if (_locationHash != 0 && liveHash != _locationHash)
@@ -255,13 +255,13 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
         // Rechecks a listed object before either world mutation.
         private void Validate(CleanupSourceIndex source, Vector3 player, float radius)
         {
-            if (Removed || _view == null || _root == null || _attached && _attachedMarker == null ||
+            if (Removed || _view == null || _root == null || _attached && _attachedObject == null ||
                 _view.GetZDO() != _data || !Generated(_data))
             {
                 throw new InvalidOperationException("This entry changed or is no longer loaded. Run indestructible list again.");
             }
-            var livePosition = _attached ? _attachedMarker.transform.position : _data.GetPosition();
-            var safe = _attached ? AttachedVegvisirPlacement.FindAll(_view.gameObject).Contains(_attachedMarker) :
+            var livePosition = _attached ? _attachedObject.transform.position : _data.GetPosition();
+            var safe = _attached ? AttachedDecorationPlacement.FindAll(_root).Contains(_attachedObject) :
                 Safe(_root, _view, Name);
             if (Distance(player) > radius || Vector3.Distance(Position, livePosition) > 0.1f || !safe)
             {
@@ -298,12 +298,12 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
         // Saves a site child's new world position on its persistent proxy record.
         private Vector3 MoveAttached()
         {
-            var destination = IndestructibleMover.Find(_attachedMarker.gameObject, Position);
+            var destination = IndestructibleMover.Find(_attachedObject, Position);
             var key = AttachedKey();
             _data.SetOwner(ZDOMan.GetSessionID());
             _data.Set(IndestructibleMover.Marker, true);
             _data.Set(key, destination);
-            _attachedMarker.transform.position = destination;
+            _attachedObject.transform.position = destination;
             Position = destination;
             return destination;
         }
@@ -312,10 +312,10 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
         internal Vector3 Ground(CleanupSourceIndex source, Vector3 player, float radius)
         {
             Validate(source, player, radius);
-            var root = _attached ? _attachedMarker.gameObject : _root;
+            var root = _attached ? _attachedObject : _root;
             if (!_attached && (_locationHash != 0 || _root != _view.gameObject))
             {
-                throw new InvalidOperationException("Only standalone decorations and attached Elder Vegvisirs can be grounded.");
+                throw new InvalidOperationException("Only standalone or safely attached decorations can be grounded.");
             }
             var destination = IndestructibleMover.Ground(root, Position);
             var key = _attached ? AttachedKey() : null;
@@ -337,8 +337,8 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
         // Rechecks the durable child path before writing a location override.
         private string AttachedKey()
         {
-            return AttachedVegvisirPlacement.PositionKeyFor(_view.gameObject, _attachedMarker)
-                ?? throw new InvalidOperationException("The Vegvisir is no longer inside the listed location.");
+            return AttachedDecorationPlacement.PositionKeyFor(_view.gameObject, _attachedObject)
+                ?? throw new InvalidOperationException("The decoration is no longer inside the listed location.");
         }
 
         // Deletes every durable member of a known generated site before removing its proxy.

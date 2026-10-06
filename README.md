@@ -1,4 +1,4 @@
-# Valheim World Crawler ![Experimental](https://img.shields.io/badge/status-experimental-orange)
+# Valheim World Crawler
 
 World Crawler lets you capture selected regions of a server world, recreate that world locally as an initially empty world, then restore the exported regions. It captures buildings, chests, and terrain modifications. The mod is client-only: you do not need to be a server admin or have access to the server's save files.
 
@@ -52,16 +52,25 @@ Using cheats can make recording and restoration easier, but it is not required.
 - **Green** zones are restored; **amber** zones are not restored yet.
 - Press **F10** again to stop restoration and perform the final save.
 
-## Addtional command
+## Additional commands
 
-New indestructible decorations may get in the way in the reconstructed world. Use these commands to move or remove them:
+### Fix indestructibles
+
+New indestructible decorations may get in the way or sit too high above the ground in the reconstructed world. Use these commands to move, ground or remove them:
 
 | Command | Action |
 | --- | --- |
 | `indestructible list` | List nearby stone circles, dolmens and other safe indestructible decorations within **30 m**. |
-| `indestructible delete 2` | Delete entry **2** from the list, including the whole monument when listed as a site. |
-| `indestructible move 2` | Move entry **2** about **20 m** to a loaded, clear and level place. An Elder Vegvisir inside any generated site moves without relocating the rest of the site. |
-| `indestructible ground 2` | Place entry **2** on the terrain at its current horizontal position, before or after any move. |
+| `indestructible move 1` | Move a listed standalone or safely attached decoration about **20 m** to a loaded, clear and level place without moving its parent site. |
+| `indestructible ground 1` | Place entry **1** on the terrain at its current horizontal position, before or after any move. |
+| `indestructible delete 1` | Delete entry **1** from the list, including the whole monument when listed as a site. |
+
+### Fix terrain
+
+Ground heights can mismatch at restored zone borders. Use these commands to find and repair those border seams:
+
+| Command | Action |
+| --- | --- |
 | `terrainseam list` | List height mismatches at every restored zone border in the local world. |
 | `terrainseam repair` | List and repair all detected borders, back up the world, then request a native save. |
 
