@@ -74,6 +74,19 @@ Ground heights can mismatch at restored zone borders. Use these commands to find
 | `terrainseam list` | List height mismatches at every restored zone border in the local world. |
 | `terrainseam repair` | List and repair all detected borders, back up the world, then request a native save. |
 
+### Fix restored timers
+
+Objects restored from a world with a later game clock can stop producing or growing. Run these commands in the local restored world:
+
+| Command | Action |
+| --- | --- |
+| `worldclock list` | List restored objects whose timers are ahead of the current world clock, including unloaded zones. |
+| `worldclock repair` | Back up the local world, reset those timers and negative machine progress, then request a native save. |
+
+### Check random events
+
+Use `eventcheck` while standing near a base to see the raid timer, base value and currently possible random events. This command does not start an event.
+
 ## Screenshot
 
 <img src="https://raw.githubusercontent.com/landoria-gaming/Landoria.WorldCrawler/refs/heads/main/assets/world-crawler-map.png" alt="World Crawler map progress" width="500">

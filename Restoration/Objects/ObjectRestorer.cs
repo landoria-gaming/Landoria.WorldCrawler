@@ -189,6 +189,11 @@ namespace Landoria.WorldCrawler.Restoration.Objects
             }
             target.SetOwner(ZDOMan.GetSessionID());
             LegacyMigration.Apply(target, source, version);
+            if (ZNetScene.instance.GetPrefab(source.PrefabHash).GetComponent<Smelter>() != null)
+            {
+                target.Set(ZDOVars.s_startTime, ZNet.instance.GetTime().Ticks);
+                target.Set(ZDOVars.s_accTime, Math.Max(0f, target.GetFloat(ZDOVars.s_accTime)));
+            }
             target.SetPosition(Vector(source.Position));
             target.SetRotation(Rotation(source.Rotation));
             if (source.LocalScale != null)

@@ -99,6 +99,7 @@ namespace Landoria.WorldCrawler.UI
         private static TextMeshProUGUI CreateText(string name, Transform parent, Minimap minimap)
         {
             var target = new GameObject(name, typeof(RectTransform));
+            target.SetActive(false);
             target.transform.SetParent(parent, false);
             var label = target.AddComponent<TextMeshProUGUI>();
             label.text = string.Empty;
@@ -112,6 +113,7 @@ namespace Landoria.WorldCrawler.UI
             label.textWrappingMode = TextWrappingModes.NoWrap;
             label.raycastTarget = false;
             label.color = Color.white;
+            target.SetActive(true);
             return label;
         }
 
