@@ -286,7 +286,7 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
             {
                 throw new InvalidOperationException("This monument is a generated site. Moving its location registry is unsupported; use delete instead.");
             }
-            var destination = IndestructibleMover.Find(_root, Position);
+            var destination = MoveAndGround(_root);
             _data.SetOwner(ZDOMan.GetSessionID());
             _data.Set(IndestructibleMover.Marker, true);
             _data.SetPosition(destination);
@@ -298,7 +298,7 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
         // Saves a site child's new world position on its persistent proxy record.
         private Vector3 MoveAttached()
         {
-            var destination = IndestructibleMover.Find(_attachedObject, Position);
+            var destination = MoveAndGround(_attachedObject);
             var key = AttachedKey();
             _data.SetOwner(ZDOMan.GetSessionID());
             _data.Set(IndestructibleMover.Marker, true);
@@ -306,6 +306,22 @@ namespace Landoria.WorldCrawler.Restoration.Cleanup
             _attachedObject.transform.position = destination;
             Position = destination;
             return destination;
+        }
+
+        // Checks the model's actual base at the new position before persisting a move.
+        private Vector3 MoveAndGround(GameObject root)
+        {
+            var previous = root.transform.position;
+            var candidate = IndestructibleMover.Find(root, Position);
+            try
+            {
+                root.transform.position = candidate;
+                return IndestructibleMover.Ground(root, candidate);
+            }
+            finally
+            {
+                root.transform.position = previous;
+            }
         }
 
         // Places any listed decoration on terrain at its current horizontal position.

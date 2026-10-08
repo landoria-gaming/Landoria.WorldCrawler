@@ -61,8 +61,8 @@ New indestructible decorations may get in the way or sit too high above the grou
 | Command | Action |
 | --- | --- |
 | `indestructible list` | List nearby stone circles, dolmens and other safe indestructible decorations within **30 m**. |
-| `indestructible move 1` | Move a listed standalone or safely attached decoration about **20 m** to a loaded, clear and level place without moving its parent site. |
-| `indestructible ground 1` | Place entry **1** on the terrain at its current horizontal position, before or after any move. |
+| `indestructible move 1` | Move a listed standalone or safely attached decoration about **20 m** to a loaded, clear and level place, then ground it without moving its parent site. |
+| `indestructible ground 1` | Place entry **1** on the terrain at its current horizontal position. |
 | `indestructible delete 1` | Delete entry **1** from the list, including the whole monument when listed as a site. |
 
 ### Fix terrain
