@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Updated to BepInExPack_Valheim-5.4.2360
+
 ## 1.0.2
 
 - Added post-restoration commands to run manually after the restoration (F10)
