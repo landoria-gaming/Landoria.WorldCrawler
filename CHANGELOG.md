@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4
+
+- Expect save version 41 or greater
+
 ## 1.0.3
 
 - Updated to BepInExPack_Valheim-5.4.2360

@@ -7,14 +7,14 @@ namespace Landoria.WorldCrawler.Restoration.Compatibility
     // Checks the native save contract before creating folders or mutating a restored world.
     internal static class CurrentSaveCompatibility
     {
-        // Supports patch releases with the known chunked format and exact save API shapes.
+        // Supports chunked save formats from 41 onward with the required save API shapes.
         internal static void Validate()
         {
-            var version = typeof(Player).Assembly.GetType("Version", true);
-            var format = version.GetField("c_WorldVersion", BindingFlags.Public | BindingFlags.Static);
-            if (format == null || !format.IsLiteral || Convert.ToInt32(format.GetRawConstantValue()) != 41)
+            Type version = typeof(Player).Assembly.GetType("Version", true);
+            FieldInfo format = version.GetField("c_WorldVersion", BindingFlags.Public | BindingFlags.Static);
+            if (format == null || !format.IsLiteral || Convert.ToInt32(format.GetRawConstantValue()) < 41)
             {
-                throw new NotSupportedException("This Valheim 1.0.x save format is not supported; expected format 41.");
+                throw new NotSupportedException("This Valheim 1.0.x save format is not supported; expected format 41 or newer.");
             }
             Method(typeof(SaveSystem), "ClearWorldListCache", true, typeof(void), typeof(bool));
             Method(typeof(SaveSystem), "GetWorldList", true, typeof(List<World>));
@@ -32,7 +32,7 @@ namespace Landoria.WorldCrawler.Restoration.Compatibility
         // Fails with the changed member name before any operation uses that method.
         private static void Method(Type owner, string name, bool isStatic, Type result, params Type[] arguments)
         {
-            var method = owner.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic |
+            MethodInfo method = owner.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic |
                 (isStatic ? BindingFlags.Static : BindingFlags.Instance), null, arguments, null);
             if (method == null || method.ReturnType != result)
             {
