@@ -81,7 +81,7 @@ namespace Landoria.WorldCrawler.WorldPreparation
         private static void ReadIdentityPrefix(BinaryReader input, WorldIdentity expected)
         {
             var length = input.ReadInt32();
-            if (length <= 0 || length != input.BaseStream.Length - 4 || input.ReadInt32() != 41 ||
+            if (length <= 0 || length != input.BaseStream.Length - 4 || input.ReadInt32() < 41 ||
                 input.ReadString() != expected.Name || input.ReadString() != expected.SeedText || input.ReadInt32() != expected.Seed)
             {
                 throw new InvalidDataException("Invalid native world metadata identity or format.");

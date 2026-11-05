@@ -117,7 +117,7 @@ namespace Landoria.WorldCrawler.Restoration.Persistence
             }
             using (var reader = new BinaryReader(File.OpenRead(file)))
             {
-                if (reader.ReadInt32() != 41)
+                if (reader.ReadInt32() < 41)
                 {
                     throw new IOException("Invalid native world-save completion marker.");
                 }
