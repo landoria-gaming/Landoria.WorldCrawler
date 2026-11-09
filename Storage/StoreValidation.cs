@@ -77,6 +77,19 @@ namespace Landoria.WorldCrawler.Storage
         // Checks metadata and payload bytes before accepting a zone as captured.
         internal static byte[] Envelope(ZoneEnvelope envelope, WorldIdentity expected, int x, int z)
         {
+            bool integrityMismatch;
+            byte[] payload = Envelope(envelope, expected, x, z, out integrityMismatch);
+            if (integrityMismatch)
+            {
+                throw new InvalidDataException("Zone payload length or SHA-256 checksum does not match.");
+            }
+            return payload;
+        }
+
+        // Returns validated payload data and reports mismatched file metadata to restoration.
+        internal static byte[] Envelope(ZoneEnvelope envelope, WorldIdentity expected, int x, int z,
+            out bool integrityMismatch)
+        {
             if (envelope != null && envelope.FormatVersion != 2)
             {
                 throw new NotSupportedException("Unsupported World Crawler zone version; existing data was preserved.");
@@ -87,12 +100,9 @@ namespace Landoria.WorldCrawler.Storage
             {
                 throw new InvalidDataException("Zone header, world identity, or coordinates are invalid.");
             }
-            var payload = envelope.Payload.Encode();
-            if (payload.Length != envelope.PayloadLength || !string.Equals(Hash(payload), envelope.Checksum,
-                StringComparison.Ordinal))
-            {
-                throw new InvalidDataException("Zone payload length or SHA-256 checksum does not match.");
-            }
+            byte[] payload = envelope.Payload.Encode();
+            integrityMismatch = payload.Length != envelope.PayloadLength ||
+                !string.Equals(Hash(payload), envelope.Checksum, StringComparison.Ordinal);
             return payload;
         }
 

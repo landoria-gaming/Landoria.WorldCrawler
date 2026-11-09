@@ -8,5 +8,7 @@ namespace Landoria.WorldCrawler.Restoration.Objects
     {
         public ZoneSnapshot Snapshot;
         public List<CapturedObject> Records;
+        public bool ManifestChecksumMismatch;
+        public bool PayloadChecksumMismatch;
     }
 }

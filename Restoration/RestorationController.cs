@@ -210,6 +210,10 @@ namespace Landoria.WorldCrawler.Restoration
                 return;
             }
             _warnings = new RestoreWarnings(_session.Journal.State.Warnings, message => _log.LogWarning(message));
+            foreach (string warning in _session.Archive.IntegrityWarnings)
+            {
+                AddWarning(warning);
+            }
             var prefabs = _session.Archive.Cleanup.PrefabNames;
             Say("Restoration source authority: " + prefabs.Length + " distinct prefabs across " +
                 _session.Archive.Manifest.Zones.Count + " exported zones: " + string.Join(", ", prefabs) + ".");

@@ -14,7 +14,9 @@ namespace Landoria.WorldCrawler.Restoration.Persistence
     {
         private readonly FileStream _lock;
         private readonly Dictionary<string, CapturedObject> _latest = new Dictionary<string, CapturedObject>();
+        private readonly List<string> _integrityWarnings = new List<string>();
         internal CleanupSourceIndex Cleanup { get; } = new CleanupSourceIndex();
+        internal IEnumerable<string> IntegrityWarnings => _integrityWarnings;
         public string DirectoryPath
         {
             get;
@@ -69,7 +71,17 @@ namespace Landoria.WorldCrawler.Restoration.Persistence
         {
             foreach (var zone in Manifest.Zones.OrderBy(z => z.Z).ThenBy(z => z.X))
             {
-                var snapshot = ReadZone(zone);
+                bool manifestMismatch;
+                bool payloadMismatch;
+                ZoneSnapshot snapshot = ReadZone(zone, out manifestMismatch, out payloadMismatch);
+                if (manifestMismatch)
+                {
+                    _integrityWarnings.Add(ManifestChecksumWarning(zone));
+                }
+                if (payloadMismatch)
+                {
+                    _integrityWarnings.Add(PayloadChecksumWarning(zone));
+                }
                 Cleanup.Observe(snapshot);
                 foreach (var item in snapshot.Objects)
                 {
@@ -78,13 +90,14 @@ namespace Landoria.WorldCrawler.Restoration.Persistence
             }
         }
 
-        // Checks both the envelope and its inner payload every time a zone is used.
-        public ZoneSnapshot ReadZone(ZoneEntry zone)
+        // Checks the zone payload and reports a stale manifest checksum separately.
+        public ZoneSnapshot ReadZone(ZoneEntry zone, out bool manifestMismatch, out bool payloadMismatch)
         {
             var file = Path.Combine(DirectoryPath, StoreValidation.ZoneFileName(zone.X, zone.Z));
             var envelope = AtomicJson.Read<ZoneEnvelope>(file);
-            var data = StoreValidation.Envelope(envelope, Manifest.World, zone.X, zone.Z);
-            if (envelope.Checksum != zone.Checksum || envelope.ObjectCount != zone.ObjectCount ||
+            byte[] data = StoreValidation.Envelope(envelope, Manifest.World, zone.X, zone.Z, out payloadMismatch);
+            manifestMismatch = !string.Equals(envelope.Checksum, zone.Checksum, StringComparison.Ordinal);
+            if (envelope.ObjectCount != zone.ObjectCount ||
                 envelope.CaptureVersion != zone.CaptureVersion ||
                 !SupportedGameVersions.CanExport(envelope.CaptureVersion))
             {
@@ -101,6 +114,20 @@ namespace Landoria.WorldCrawler.Restoration.Persistence
                 throw new InvalidDataException("The source zone has incomplete loading evidence; destination unchanged.");
             }
             return snapshot;
+        }
+
+        // Names the zone whose manifest checksum differs from its validated file.
+        internal static string ManifestChecksumWarning(ZoneEntry zone)
+        {
+            return "Manifest checksum differs from the zone file; zone=" + zone.X + ":" + zone.Z +
+                ". Restoration uses the zone file content.";
+        }
+
+        // Names the zone whose payload metadata differs from its readable content.
+        internal static string PayloadChecksumWarning(ZoneEntry zone)
+        {
+            return "Zone payload length or checksum differs from its content; zone=" + zone.X + ":" + zone.Z +
+                ". Restoration uses the structurally validated content.";
         }
 
         // Keeps the earliest exported copy when an older archive contains repeated source IDs.
@@ -123,10 +150,11 @@ namespace Landoria.WorldCrawler.Restoration.Persistence
         }
 
         // Returns the first unique observations owned by a target sector.
-        public List<CapturedObject> ZoneObjects(int x, int z)
+        public List<CapturedObject> ZoneObjects(ZoneSnapshot snapshot)
         {
-            var zone = Manifest.Zones.Single(v => v.X == x && v.Z == z);
-            return ReadZone(zone).Objects.Where(v => _latest.ContainsKey(Key(v)) && _latest[Key(v)].ZoneX == x && _latest[Key(v)].ZoneZ == z &&
+            int x = snapshot.ZoneX;
+            int z = snapshot.ZoneZ;
+            return snapshot.Objects.Where(v => _latest.ContainsKey(Key(v)) && _latest[Key(v)].ZoneX == x && _latest[Key(v)].ZoneZ == z &&
                     _latest[Key(v)].ObservedUtcTicks == v.ObservedUtcTicks)
                 .OrderBy(v => v.Categories.Contains("TerrainComp") || v.Categories.Contains("TerrainModifier") ? 0 :
                     v.Categories.Contains("LocationProxy") ? 1 : v.Categories.Contains("Piece") ? 2 :

@@ -59,6 +59,14 @@ namespace Landoria.WorldCrawler.Restoration
             _read = null;
             var data = read.GetAwaiter().GetResult();
             var key = ZoneKey(_zone.X, _zone.Z);
+            if (data.ManifestChecksumMismatch)
+            {
+                AddWarning(ExportArchive.ManifestChecksumWarning(_zone));
+            }
+            if (data.PayloadChecksumMismatch)
+            {
+                AddWarning(ExportArchive.PayloadChecksumWarning(_zone));
+            }
             _session.Journal.Save();
             _writer = new ZoneRestorer(_objects, data.Records, data.Snapshot, _zone, AddWarning);
             _visited.Add(key);

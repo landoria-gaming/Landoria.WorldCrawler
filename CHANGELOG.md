@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.6
+
+- Log a warning and continue when an imported prefab fails verification.
+- Log a warning and continue when a zone checksum differs, provided its data is valid.
+
 ## 1.0.4
 
 - Expect save version 41 or greater

@@ -25,6 +25,7 @@ namespace Landoria.WorldCrawler.Restoration.Objects
         private float _nextCleanup;
         private float _readySince;
         private readonly HashSet<string> _layouts = new HashSet<string>();
+        private readonly HashSet<string> _failed = new HashSet<string>();
         public bool Done
         {
             get; private set;
@@ -33,7 +34,8 @@ namespace Landoria.WorldCrawler.Restoration.Objects
         // Summarizes the prefabs processed for this zone after validation succeeds.
         internal ZoneSaveReport Report()
         {
-            var groups = _records.Where(_objects.WasApplied).GroupBy(item => item.PrefabName).OrderBy(group => group.Key).ToList();
+            var groups = _records.Where(item => !_failed.Contains(ExportArchive.Key(item)) && _objects.WasApplied(item))
+                .GroupBy(item => item.PrefabName).OrderBy(group => group.Key).ToList();
             return new ZoneSaveReport
             {
                 X = _snapshot.ZoneX,
@@ -93,13 +95,40 @@ namespace Landoria.WorldCrawler.Restoration.Objects
             }
             while (_verify < _records.Count && budget-- > 0 && watch.ElapsedMilliseconds < 4)
             {
-                if (!Verify(_records[_verify]))
+                if (_failed.Contains(ExportArchive.Key(_records[_verify])))
+                {
+                    _verify++;
+                    continue;
+                }
+                if (!VerifyOne(_records[_verify]))
                 {
                     return;
                 }
                 _verify++;
             }
             Done = _verify == _records.Count && Cleanup() == 0 && !_objects.DeletionsPending();
+        }
+
+        // Skips an individual object whose restored identity or pose cannot be verified.
+        private bool VerifyOne(CapturedObject source)
+        {
+            try
+            {
+                return Verify(source);
+            }
+            catch (ObjectVerificationException error)
+            {
+                Skip(source, error);
+                return true;
+            }
+        }
+
+        // Records the exact failed source so later reports exclude it.
+        private void Skip(CapturedObject source, ObjectVerificationException error)
+        {
+            _failed.Add(ExportArchive.Key(source));
+            _warning("Object verification failed; " + RestoreWarnings.Describe(source) + "; " + error.Message +
+                ". This object is unverified; continuing with the remaining objects in this zone.");
         }
 
         // Rechecks live generated arrivals until restoration has settled.
@@ -150,7 +179,7 @@ namespace Landoria.WorldCrawler.Restoration.Objects
             var target = _objects.Resolve(source);
             if (target == null)
             {
-                throw new InvalidOperationException("Imported identity is missing during validation; " + RestoreWarnings.Describe(source));
+                throw new ObjectVerificationException("Imported identity is missing during validation");
             }
             var instance = ZNetScene.instance.FindInstance(target);
             if (target.GetBool("WorldCrawler.initialized", true))
@@ -212,7 +241,7 @@ namespace Landoria.WorldCrawler.Restoration.Objects
             var movable = RestorePositionPolicy.IsMovable(itemDrop, placedItem, sync != null && sync.m_syncPosition);
             if (!RestorePositionPolicy.Accepts(distance, movable))
             {
-                throw new InvalidOperationException("Imported position is invalid; " + RestoreWarnings.Describe(source)
+                throw new ObjectVerificationException("Imported position is invalid"
                     + "; displacement=" + distance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
                     + "m; movable=" + movable + "; itemDrop=" + itemDrop + "; placedItem=" + placedItem + ".");
             }

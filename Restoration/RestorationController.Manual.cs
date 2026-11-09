@@ -4,7 +4,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using Landoria.WorldCrawler.Capture;
 using Landoria.WorldCrawler.Restoration.Objects;
+using Landoria.WorldCrawler.Restoration.Persistence;
 using Landoria.WorldCrawler.Runtime;
+using Landoria.WorldCrawler.Storage;
 using Landoria.WorldCrawler.UI;
 using UnityEngine;
 
@@ -40,10 +42,16 @@ namespace Landoria.WorldCrawler.Restoration
             {
                 return;
             }
-            var archive = _session.Archive;
-            var zoneToRead = _zone;
-            _read = Task.Run(() => new ZoneImportData { Snapshot = archive.ReadZone(zoneToRead),
-                Records = archive.ZoneObjects(zoneToRead.X, zoneToRead.Z) });
+            ExportArchive archive = _session.Archive;
+            ZoneEntry zoneToRead = _zone;
+            _read = Task.Run(() =>
+            {
+                bool manifestMismatch;
+                bool payloadMismatch;
+                ZoneSnapshot snapshot = archive.ReadZone(zoneToRead, out manifestMismatch, out payloadMismatch);
+                return new ZoneImportData { Snapshot = snapshot, Records = archive.ZoneObjects(snapshot),
+                    ManifestChecksumMismatch = manifestMismatch, PayloadChecksumMismatch = payloadMismatch };
+            });
             _waitingSince = Time.unscaledTime;
             _phase = RestorePhase.Reading;
         }
